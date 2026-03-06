@@ -1,0 +1,161 @@
+import SQLiteESMFactory from "wa-sqlite/dist/wa-sqlite-async.mjs";
+import { Factory } from "wa-sqlite/src/sqlite-api.js";
+import { IDBBatchAtomicVFS } from "wa-sqlite/src/examples/IDBBatchAtomicVFS.js";
+import { OPFSCoopSyncVFS } from "wa-sqlite/src/examples/OPFSCoopSyncVFS.js";
+import { CREATE_TABLES, SCHEMA_VERSION } from "../src/db/schema.ts";
+import { getSeedSQL } from "../src/db/seed.ts";
+import type { DbWorkerRequest, DbWorkerResponse } from "../src/types/worker.ts";
+
+let sqlite3: any;
+let db: number;
+let storageType = "unknown";
+
+async function initialize() {
+  const module = await SQLiteESMFactory();
+  sqlite3 = Factory(module);
+
+  // Try OPFS first, fall back to IDB
+  try {
+    const vfs = await OPFSCoopSyncVFS.create("budget-opfs", module);
+    sqlite3.vfs_register(vfs, true);
+    db = await sqlite3.open_v2("budget.db");
+    storageType = "opfs";
+  } catch {
+    try {
+      const vfs = await IDBBatchAtomicVFS.create("budget-idb", module);
+      sqlite3.vfs_register(vfs, true);
+      db = await sqlite3.open_v2("budget.db");
+      storageType = "idb";
+    } catch (e) {
+      throw new Error(`Failed to initialize database: ${e}`);
+    }
+  }
+
+  // Enable WAL mode and foreign keys
+  await exec("PRAGMA journal_mode=WAL;");
+  await exec("PRAGMA foreign_keys=ON;");
+
+  // Run migrations
+  await migrate();
+
+  return storageType;
+}
+
+async function migrate() {
+  const result = await exec("PRAGMA user_version;");
+  const currentVersion = (result.rows[0] as any)?.user_version ?? 0;
+
+  if (currentVersion < SCHEMA_VERSION) {
+    await exec("BEGIN TRANSACTION;");
+    try {
+      // Split and execute each statement
+      const statements = CREATE_TABLES.split(";")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      for (const stmt of statements) {
+        await exec(stmt + ";");
+      }
+
+      // Seed default categories
+      const seedStatements = getSeedSQL()
+        .split(";")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      for (const stmt of seedStatements) {
+        await exec(stmt + ";");
+      }
+
+      await exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+      await exec("COMMIT;");
+    } catch (e) {
+      await exec("ROLLBACK;");
+      throw e;
+    }
+  }
+}
+
+async function exec(
+  sql: string,
+  params?: unknown[]
+): Promise<{ rows: Record<string, unknown>[]; changes: number }> {
+  const rows: Record<string, unknown>[] = [];
+
+  for await (const stmt of sqlite3.statements(db, sql)) {
+    if (params?.length) {
+      sqlite3.bind_collection(stmt, params);
+    }
+
+    const columns: string[] = [];
+    const nCols = sqlite3.column_count(stmt);
+    for (let i = 0; i < nCols; i++) {
+      columns.push(sqlite3.column_name(stmt, i));
+    }
+
+    while ((await sqlite3.step(stmt)) === 100) {
+      // SQLITE_ROW = 100
+      const row: Record<string, unknown> = {};
+      for (let i = 0; i < nCols; i++) {
+        row[columns[i]!] = sqlite3.column(stmt, i);
+      }
+      rows.push(row);
+    }
+  }
+
+  const changes = sqlite3.changes(db);
+  return { rows, changes };
+}
+
+// Message handler
+const initPromise = initialize();
+let ready = false;
+
+self.addEventListener("message", async (event: MessageEvent<DbWorkerRequest>) => {
+  const { id, type, sql, params } = event.data;
+
+  if (!ready) {
+    try {
+      const st = await initPromise;
+      ready = true;
+      self.postMessage({ id: -1, type: "ready", storageType: st } satisfies DbWorkerResponse);
+    } catch (e: any) {
+      self.postMessage({
+        id,
+        type: "error",
+        error: e.message,
+      } satisfies DbWorkerResponse);
+      return;
+    }
+  }
+
+  if (type === "exec") {
+    try {
+      const result = await exec(sql, params);
+      self.postMessage({
+        id,
+        type: "result",
+        rows: result.rows,
+        changes: result.changes,
+      } satisfies DbWorkerResponse);
+    } catch (e: any) {
+      self.postMessage({
+        id,
+        type: "error",
+        error: e.message,
+      } satisfies DbWorkerResponse);
+    }
+  }
+});
+
+// Signal that worker is loaded, trigger init
+initPromise
+  .then((st) => {
+    ready = true;
+    self.postMessage({ id: -1, type: "ready", storageType: st } satisfies DbWorkerResponse);
+  })
+  .catch((e) => {
+    self.postMessage({
+      id: -1,
+      type: "error",
+      error: e.message,
+    } satisfies DbWorkerResponse);
+  });
