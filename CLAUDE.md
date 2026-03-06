@@ -56,12 +56,26 @@ Simple EventTarget pub/sub for cross-hook cache invalidation. Event types: `tran
 TanStack Router file-based routing in `src/routes/`. Auto-generates `routeTree.gen.ts` via plugin. Each route exports via `createFileRoute()`.
 
 - `__root.tsx` — Layout: wraps app with DbProvider, ToastProvider, Sidebar, MobileNav
-- `index.tsx` — Dashboard with charts
-- `transactions.tsx`, `categories.tsx`, `recurring.tsx`, `settings.tsx`
+- `index.tsx` — Cashflow page (single-month view with inline add/edit)
+- `overview.tsx` — Multi-month overview with chart and pivot grid
+- `settings.tsx`
 
 ### Custom Hooks (`src/hooks/`)
 
 Each hook calls `useDb()`, provides `{ data, loading, refresh, add, update, remove }` pattern, and subscribes to the event bus for auto-refresh.
+
+### Cashflow Page (`src/components/cashflow/`)
+
+The main page. Income and Expense tables with inline add/edit rows sharing a 7-column grid (`GRID_COLS` constant in `SingleMonthView.tsx`):
+
+- **Columns:** Payee | Date | Category | Recur | Amount | Status | Actions
+- **Inline add:** Same grid layout — all fields editable inline (payee, date, category, recurring frequency, amount, status). Group selector appears as secondary row when groups exist.
+- **Inline edit:** Click pencil icon to edit in-place with same grid. Enter saves, Esc cancels.
+- **Empty state:** Always shows table structure with headers + "Add item" row (no EmptyState component).
+- **Recurring:** Frequency column shows abbreviated labels (Mo, Wk, Qt, Yr). Transactions joined with `recurring_transactions` table to get `recurring_frequency`.
+- **Data flow:** `useCashflow` hook → `buildCashflowRows()` → `CashflowRow` type includes `frequency` field.
+- **StatusPill:** Shared component for plan/confirmed toggle used in display, edit, and add modes.
+- **CategoryCombo:** Custom combobox (no Radix) with full ARIA compliance (`role="combobox"`, `listbox`, `option`, `aria-activedescendant`, `aria-expanded`) and keyboard nav (Arrow Up/Down, Enter, Escape, Home/End, Tab). Supports filtering existing categories and inline creation of new ones. Z-index: `z-[60]` for dropdown (above action menus at `z-50`).
 
 ## Key Conventions
 
@@ -71,7 +85,7 @@ Each hook calls `useDb()`, provides `{ data, loading, refresh, add, update, remo
 - **Formatting:** `formatCurrency()`, `formatDate()`, `getCurrentMonth()` from `src/lib/format.ts`
 - **Toasts:** Custom ToastProvider context (`src/components/ui/Toast.tsx`) — use `useToast()` hook
 - **Modals/Dialogs:** `<Modal />` wrapping HTML `<dialog>`, `<ConfirmDialog />` for confirm/cancel
-- **UI Components** (`src/components/ui/`): Button (variants: primary/secondary/danger/ghost), Input, Select, Card, Badge, EmptyState, etc.
+- **UI Components** (`src/components/ui/`): Button (variants: primary/secondary/danger/ghost), Input, Select, Card, Badge, etc.
 - **Icons:** Inline SVG components defined in component files (not using an icon library)
 - **Path alias:** `@/*` maps to `./src/*`
 
@@ -83,4 +97,4 @@ Each hook calls `useDb()`, provides `{ data, loading, refresh, add, update, remo
 
 ## Schema (Tables)
 
-`categories` (hierarchical, color/icon, is_income/is_system flags) | `transactions` (amount, type, category_id, date, payee, notes) | `recurring_transactions` (frequency, next_occurrence, mode) | `tags` + `transaction_tags` (many-to-many) | `budgets` (category budgets by month) | `settings` (key-value store)
+`categories` (hierarchical, color/icon, is_income/is_system flags) | `transactions` (amount, type, category_id, date, payee, notes, recurring_id, status, group_name) | `recurring_transactions` (frequency, next_occurrence, mode — joined via `transactions.recurring_id`) | `tags` + `transaction_tags` (many-to-many) | `budgets` (category budgets by month) | `settings` (key-value store)

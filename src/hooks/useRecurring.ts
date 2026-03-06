@@ -72,6 +72,14 @@ export function useRecurring() {
     [db]
   );
 
+  const stopRecurrence = useCallback(
+    async (recurringId: string) => {
+      await updateRecurring(db, recurringId, { is_active: false });
+      emitDbEvent("recurring-changed");
+    },
+    [db]
+  );
+
   const processDue = useCallback(async () => {
     const today = new Date().toISOString().split("T")[0]!;
     const due = await getDueRecurring(db, today);
@@ -87,6 +95,7 @@ export function useRecurring() {
           payee: rec.payee,
           notes: rec.notes,
           recurring_id: rec.id,
+          status: "confirmed",
         });
       }
 
@@ -111,5 +120,5 @@ export function useRecurring() {
     return due;
   }, [db]);
 
-  return { items, loading, add, update, remove, processDue, refresh };
+  return { items, loading, add, update, remove, stopRecurrence, processDue, refresh };
 }

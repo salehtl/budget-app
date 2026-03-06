@@ -1,11 +1,8 @@
 import { Link, useLocation } from "@tanstack/react-router";
 
 const navItems = [
-  { to: "/", label: "Dashboard", icon: DashboardIcon },
-  { to: "/transactions", label: "Transactions", icon: TransactionsIcon },
-  { to: "/cashflow", label: "Cashflow", icon: CashflowIcon },
-  { to: "/categories", label: "Categories", icon: CategoriesIcon },
-  { to: "/recurring", label: "Recurring", icon: RecurringIcon },
+  { to: "/", label: "Cashflow", icon: CashflowIcon },
+  { to: "/overview", label: "Overview", icon: OverviewIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
@@ -86,19 +83,8 @@ function MobileNavItem({
   );
 }
 
-// Icons as inline SVGs
-function DashboardIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="9" rx="1" />
-      <rect x="14" y="3" width="7" height="5" rx="1" />
-      <rect x="14" y="12" width="7" height="9" rx="1" />
-      <rect x="3" y="16" width="7" height="5" rx="1" />
-    </svg>
-  );
-}
-
-function TransactionsIcon({ className }: { className?: string }) {
+// Icons
+function CashflowIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
@@ -106,23 +92,7 @@ function TransactionsIcon({ className }: { className?: string }) {
   );
 }
 
-function CategoriesIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-    </svg>
-  );
-}
-
-function RecurringIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-    </svg>
-  );
-}
-
-function CashflowIcon({ className }: { className?: string }) {
+function OverviewIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 3v18h18" />

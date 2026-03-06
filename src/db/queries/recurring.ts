@@ -1,5 +1,6 @@
 import type { DbClient } from "../client.ts";
 import type { RecurringTransaction } from "../../types/database.ts";
+import { getNextOccurrence } from "../../lib/recurring.ts";
 
 export async function getRecurringTransactions(
   db: DbClient
@@ -131,4 +132,56 @@ export async function getDueRecurring(
     [date]
   );
   return rows;
+}
+
+export async function autoPopulateFutureTransactions(
+  db: DbClient,
+  month: string
+): Promise<void> {
+  const { rows: recurring } = await db.exec<RecurringTransaction>(
+    "SELECT * FROM recurring_transactions WHERE is_active = 1"
+  );
+
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  const monthStart = `${month}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
+
+  for (const rec of recurring) {
+    // Check if a transaction already exists for this recurring rule in this month
+    const { rows: existing } = await db.exec<{ count: number }>(
+      `SELECT COUNT(*) as count FROM transactions
+       WHERE recurring_id = ? AND substr(date, 1, 7) = ?`,
+      [rec.id, month]
+    );
+
+    if ((existing[0]?.count ?? 0) > 0) continue;
+
+    // Check if this recurring rule has an occurrence in this month
+    let occ = rec.start_date;
+    // Advance to this month
+    while (occ < monthStart) {
+      occ = getNextOccurrence(occ, rec.frequency, rec.custom_interval_days);
+      if (rec.end_date && occ > rec.end_date) break;
+    }
+
+    if (occ >= monthStart && occ <= monthEnd) {
+      if (rec.end_date && occ > rec.end_date) continue;
+
+      await db.exec(
+        `INSERT INTO transactions (id, amount, type, category_id, date, payee, notes, recurring_id, status, group_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'planned', '')`,
+        [
+          crypto.randomUUID(),
+          rec.amount,
+          rec.type,
+          rec.category_id,
+          occ,
+          rec.payee,
+          rec.notes,
+          rec.id,
+        ]
+      );
+    }
+  }
 }

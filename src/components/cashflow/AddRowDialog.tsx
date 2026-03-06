@@ -3,30 +3,54 @@ import { Modal } from "../ui/Modal.tsx";
 import { Input } from "../ui/Input.tsx";
 import { Select } from "../ui/Select.tsx";
 import { Button } from "../ui/Button.tsx";
-import { MonthPicker } from "../ui/MonthPicker.tsx";
-import { getCurrentMonth } from "../../lib/format.ts";
+import { getCurrentMonth, getToday } from "../../lib/format.ts";
+import type { RecurringTransaction } from "../../types/database.ts";
+
+const FREQUENCIES: { value: RecurringTransaction["frequency"]; label: string }[] = [
+  { value: "monthly", label: "Monthly" },
+  { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "Biweekly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "yearly", label: "Yearly" },
+];
 
 interface AddRowDialogProps {
   open: boolean;
   onClose: () => void;
+  month: string;
   categories: { id: string; name: string; is_income: number; parent_id: string | null }[];
   onSubmit: (data: {
-    label: string;
+    payee: string;
     type: "income" | "expense";
     amount: number;
     category_id: string | null;
+    date: string;
+    status: "planned" | "confirmed";
     group_name: string;
-    month: string | null;
+    recurring?: {
+      frequency: RecurringTransaction["frequency"];
+      custom_interval_days?: number | null;
+      end_date?: string | null;
+    };
   }) => Promise<void>;
 }
 
-export function AddRowDialog({ open, onClose, categories, onSubmit }: AddRowDialogProps) {
-  const [label, setLabel] = useState("");
+export function AddRowDialog({ open, onClose, month, categories, onSubmit }: AddRowDialogProps) {
   const [type, setType] = useState<"income" | "expense">("expense");
+  const [payee, setPayee] = useState("");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [date, setDate] = useState(() => {
+    const today = getToday();
+    const currentMonth = getCurrentMonth();
+    // If viewing the current month, default to today; otherwise, first of the month
+    return month === currentMonth ? today : `${month}-01`;
+  });
+  const [status, setStatus] = useState<"planned" | "confirmed">("confirmed");
   const [groupName, setGroupName] = useState("");
-  const [month, setMonth] = useState("");
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [frequency, setFrequency] = useState<RecurringTransaction["frequency"]>("monthly");
+  const [submitting, setSubmitting] = useState(false);
 
   const filteredCategories = categories
     .filter((c) => (type === "income" ? c.is_income : !c.is_income))
@@ -38,26 +62,34 @@ export function AddRowDialog({ open, onClose, categories, onSubmit }: AddRowDial
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const amt = parseFloat(amount);
-    if (!label.trim() || !amt || amt <= 0) return;
+    if (!payee.trim() || !amt || amt <= 0) return;
+
+    setSubmitting(true);
     await onSubmit({
-      label: label.trim(),
+      payee: payee.trim(),
       type,
       amount: amt,
       category_id: categoryId || null,
+      date,
+      status,
       group_name: groupName.trim(),
-      month: month || null,
+      ...(isRecurring
+        ? { recurring: { frequency, custom_interval_days: null, end_date: null } }
+        : {}),
     });
+    setSubmitting(false);
+
     // Reset
-    setLabel("");
+    setPayee("");
     setAmount("");
     setCategoryId("");
     setGroupName("");
-    setMonth("");
+    setIsRecurring(false);
     onClose();
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Add Cashflow Row">
+    <Modal open={open} onClose={onClose} title="Add Transaction">
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Type toggle */}
         <div className="flex items-center gap-1.5">
@@ -86,11 +118,11 @@ export function AddRowDialog({ open, onClose, categories, onSubmit }: AddRowDial
         </div>
 
         <Input
-          label="Label"
-          placeholder="e.g., Side project revenue"
+          label="Payee"
+          placeholder="e.g., DEWA, Etisalat"
           required
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          value={payee}
+          onChange={(e) => setPayee(e.target.value)}
         />
 
         <Input
@@ -102,6 +134,14 @@ export function AddRowDialog({ open, onClose, categories, onSubmit }: AddRowDial
           placeholder="0.00"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
+        />
+
+        <Input
+          label="Date"
+          type="date"
+          required
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
         />
 
         <Select
@@ -119,44 +159,77 @@ export function AddRowDialog({ open, onClose, categories, onSubmit }: AddRowDial
           onChange={(e) => setGroupName(e.target.value)}
         />
 
+        {/* Status toggle */}
         <div className="space-y-1">
-          <label className="block text-sm font-medium text-text-muted">Month</label>
-          <div className="flex items-center gap-2">
-            {month ? (
-              <>
-                <MonthPicker value={month} onChange={setMonth} />
-                <button
-                  type="button"
-                  onClick={() => setMonth("")}
-                  className="text-xs text-text-light hover:text-text-muted cursor-pointer"
-                >
-                  Clear
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setMonth(getCurrentMonth())}
-                className="flex items-center gap-1.5 rounded-lg border border-dashed border-border bg-surface px-2.5 py-1.5 text-xs text-text-light hover:text-text-muted hover:border-border-dark transition-colors cursor-pointer"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" />
-                  <line x1="8" y1="2" x2="8" y2="6" />
-                  <line x1="3" y1="10" x2="21" y2="10" />
-                </svg>
-                Pick a month
-              </button>
-            )}
+          <label className="block text-sm font-medium text-text-muted">Status</label>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setStatus("confirmed")}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                status === "confirmed"
+                  ? "bg-success/15 text-success border border-success/30"
+                  : "bg-surface-alt text-text-muted hover:text-text"
+              }`}
+            >
+              Confirmed
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatus("planned")}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                status === "planned"
+                  ? "bg-surface-alt text-text border border-border-dark"
+                  : "bg-surface-alt text-text-muted hover:text-text"
+              }`}
+            >
+              Planned
+            </button>
           </div>
-          <p className="text-[11px] text-text-light">Leave blank to apply to all months</p>
+        </div>
+
+        {/* Recurring toggle */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="is-recurring"
+              checked={isRecurring}
+              onChange={(e) => setIsRecurring(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="is-recurring" className="text-sm text-text-muted">
+              Recurring transaction
+            </label>
+          </div>
+
+          {isRecurring && (
+            <div className="flex flex-wrap gap-1.5 pl-6">
+              {FREQUENCIES.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setFrequency(f.value)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                    frequency === f.value
+                      ? "bg-accent text-white"
+                      : "bg-surface-alt text-text-muted hover:text-text"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit">Add</Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? "Adding..." : "Add"}
+          </Button>
         </div>
       </form>
     </Modal>

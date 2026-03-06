@@ -234,7 +234,7 @@ function months(start: string, end: string): string[] {
 export function getCashflowSeedSQL(): string {
   return CASHFLOW_SEED.map(
     (item) =>
-      `INSERT OR IGNORE INTO cashflow_items (id, label, type, amount, group_name, month, sort_order)
-       VALUES ('${item.id}', '${item.label}', '${item.type}', ${item.amount}, '${item.group_name}', ${item.month ? `'${item.month}'` : "NULL"}, ${item.sort_order});`
+      `INSERT OR IGNORE INTO transactions (id, amount, type, date, payee, status, group_name)
+       VALUES ('${item.id}', ${item.amount}, '${item.type}', '${item.month ?? new Date().toISOString().split("T")[0]}-01', '${item.label}', 'planned', '${item.group_name}');`
   ).join("\n");
 }

@@ -6,12 +6,14 @@ export interface TransactionFilters {
   categoryId?: string;
   type?: "income" | "expense";
   search?: string;
+  status?: "planned" | "confirmed";
 }
 
 export interface TransactionWithCategory extends Transaction {
   category_name: string | null;
   category_color: string | null;
   category_icon: string | null;
+  recurring_frequency: string | null;
 }
 
 export async function getTransactions(
@@ -36,6 +38,10 @@ export async function getTransactions(
   if (filters?.search) {
     where.push("(t.payee LIKE ? OR t.notes LIKE ?)");
     params.push(`%${filters.search}%`, `%${filters.search}%`);
+  }
+  if (filters?.status) {
+    where.push("t.status = ?");
+    params.push(filters.status);
   }
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -73,11 +79,13 @@ export async function createTransaction(
     payee?: string;
     notes?: string;
     recurring_id?: string | null;
+    status?: "planned" | "confirmed";
+    group_name?: string;
   }
 ): Promise<void> {
   await db.exec(
-    `INSERT INTO transactions (id, amount, type, category_id, date, payee, notes, recurring_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO transactions (id, amount, type, category_id, date, payee, notes, recurring_id, status, group_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       txn.id,
       txn.amount,
@@ -87,6 +95,8 @@ export async function createTransaction(
       txn.payee ?? "",
       txn.notes ?? "",
       txn.recurring_id ?? null,
+      txn.status ?? "confirmed",
+      txn.group_name ?? "",
     ]
   );
 }
@@ -101,6 +111,8 @@ export async function updateTransaction(
     date?: string;
     payee?: string;
     notes?: string;
+    status?: "planned" | "confirmed";
+    group_name?: string;
   }
 ): Promise<void> {
   const sets: string[] = [];
@@ -129,6 +141,14 @@ export async function updateTransaction(
   if (updates.notes !== undefined) {
     sets.push("notes = ?");
     params.push(updates.notes);
+  }
+  if (updates.status !== undefined) {
+    sets.push("status = ?");
+    params.push(updates.status);
+  }
+  if (updates.group_name !== undefined) {
+    sets.push("group_name = ?");
+    params.push(updates.group_name);
   }
 
   if (sets.length === 0) return;

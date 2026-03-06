@@ -1,41 +1,37 @@
-import type { RecurringTransaction, CashflowItem } from "../types/database.ts";
-import type { MonthActual } from "../db/queries/cashflow.ts";
-import { getNextOccurrence } from "./recurring.ts";
+import type { TransactionWithCategory } from "../db/queries/transactions.ts";
 
-// --- Types ---
-
-export interface CashflowCell {
-  amount: number;
-  isProjected: boolean;
-}
+export type GroupBy = "category" | "group_name" | "type" | "none";
 
 export interface CashflowRow {
   id: string;
   label: string;
-  source: "recurring" | "actual" | "adhoc";
   type: "income" | "expense";
-  groupName: string;
+  status: "planned" | "confirmed";
+  isRecurring: boolean;
+  recurringId: string | null;
+  frequency: string | null;
+  date: string;
+  amount: number;
   categoryId: string | null;
   categoryName: string | null;
   categoryColor: string | null;
-  recurringId: string | null;
-  monthValues: Map<string, CashflowCell>;
-  /** Database IDs for adhoc cashflow_items (used for edit/delete) */
-  dbIds: string[];
+  groupName: string;
 }
 
 export interface CashflowGroup {
   name: string;
-  categoryId: string | null;
   rows: CashflowRow[];
-  monthTotals: Map<string, number>;
+  total: number;
 }
 
-export interface CashflowGrid {
-  months: string[];
-  incomeGroups: CashflowGroup[];
-  expenseGroups: CashflowGroup[];
-  monthTotals: Map<string, { income: number; expense: number; net: number }>;
+export interface CashflowSummary {
+  income: number;
+  expenses: number;
+  net: number;
+  plannedIncome: number;
+  confirmedIncome: number;
+  plannedExpenses: number;
+  confirmedExpenses: number;
 }
 
 // --- Helpers ---
@@ -58,261 +54,93 @@ export function getCurrentMonth(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function monthStart(month: string): string {
-  return `${month}-01`;
-}
+// --- Build rows from transactions ---
 
-function monthEnd(month: string): string {
-  const [y, m] = month.split("-").map(Number) as [number, number];
-  const lastDay = new Date(y, m, 0).getDate();
-  return `${month}-${String(lastDay).padStart(2, "0")}`;
-}
+export function buildCashflowRows(
+  transactions: TransactionWithCategory[],
+  groupBy: GroupBy = "none"
+): { incomeGroups: CashflowGroup[]; expenseGroups: CashflowGroup[]; summary: CashflowSummary } {
+  const rows: CashflowRow[] = transactions.map((t) => ({
+    id: t.id,
+    label: t.payee || t.category_name || "Uncategorized",
+    type: t.type,
+    status: t.status,
+    isRecurring: !!t.recurring_id,
+    recurringId: t.recurring_id,
+    frequency: t.recurring_frequency ?? null,
+    date: t.date,
+    amount: t.amount,
+    categoryId: t.category_id,
+    categoryName: t.category_name,
+    categoryColor: t.category_color,
+    groupName: t.group_name,
+  }));
 
-// --- Projection ---
+  // Compute summary
+  const summary: CashflowSummary = {
+    income: 0,
+    expenses: 0,
+    net: 0,
+    plannedIncome: 0,
+    confirmedIncome: 0,
+    plannedExpenses: 0,
+    confirmedExpenses: 0,
+  };
 
-export function projectRecurring(
-  recurring: RecurringTransaction[],
-  months: string[],
-  currentMonth: string
-): Map<string, Map<string, CashflowCell>> {
-  // key: recurringId -> month -> cell
-  const projections = new Map<string, Map<string, CashflowCell>>();
-
-  for (const rec of recurring) {
-    if (!rec.is_active) continue;
-
-    const rowMap = new Map<string, CashflowCell>();
-    projections.set(rec.id, rowMap);
-
-    for (const month of months) {
-      if (month < currentMonth) continue; // past months use actuals only
-
-      const mStart = monthStart(month);
-      const mEnd = monthEnd(month);
-
-      // Walk occurrences that fall in this month
-      let occ = rec.next_occurrence;
-      // If occurrence is before this month, advance forward
-      while (occ < mStart) {
-        occ = getNextOccurrence(occ, rec.frequency, rec.custom_interval_days);
-        if (rec.end_date && occ > rec.end_date) break;
-      }
-
-      let monthTotal = 0;
-      while (occ >= mStart && occ <= mEnd) {
-        if (rec.end_date && occ > rec.end_date) break;
-        monthTotal += rec.amount;
-        occ = getNextOccurrence(occ, rec.frequency, rec.custom_interval_days);
-      }
-
-      if (monthTotal > 0) {
-        rowMap.set(month, { amount: monthTotal, isProjected: month >= currentMonth });
-      }
-    }
-  }
-
-  return projections;
-}
-
-// --- Grid Builder ---
-
-export function buildCashflowGrid(
-  months: string[],
-  actuals: MonthActual[],
-  recurring: RecurringTransaction[],
-  adhocItems: CashflowItem[],
-  currentMonth: string
-): CashflowGrid {
-  const projections = projectRecurring(recurring, months, currentMonth);
-
-  // Build rows from different sources
-  const rowsMap = new Map<string, CashflowRow>();
-
-  // 1. Recurring-based rows (projected)
-  for (const rec of recurring) {
-    if (!rec.is_active) continue;
-    const key = `recurring:${rec.id}`;
-    const proj = projections.get(rec.id);
-    if (!proj || proj.size === 0) continue;
-
-    rowsMap.set(key, {
-      id: key,
-      label: rec.payee || "Unnamed",
-      source: "recurring",
-      type: rec.type,
-      groupName: "",
-      categoryId: rec.category_id,
-      categoryName: null,
-      categoryColor: null,
-      recurringId: rec.id,
-      monthValues: new Map(proj),
-      dbIds: [],
-    });
-  }
-
-  // 2. Actuals — merge into recurring rows or create standalone
-  for (const actual of actuals) {
-    if (actual.recurring_id) {
-      const key = `recurring:${actual.recurring_id}`;
-      const existing = rowsMap.get(key);
-      if (existing) {
-        // Merge actual into recurring row — actuals override projections for past/current months
-        const cell = existing.monthValues.get(actual.month);
-        if (cell) {
-          if (actual.month <= currentMonth) {
-            cell.amount = actual.total;
-            cell.isProjected = false;
-          }
-        } else {
-          existing.monthValues.set(actual.month, {
-            amount: actual.total,
-            isProjected: false,
-          });
-        }
-        if (!existing.categoryName && actual.category_name) {
-          existing.categoryName = actual.category_name;
-          existing.categoryColor = actual.category_color;
-        }
-        continue;
-      }
-    }
-
-    // Non-recurring actual → group by payee+category+type
-    const key = `actual:${actual.type}:${actual.category_id ?? "none"}:${actual.payee}`;
-    const existing = rowsMap.get(key);
-    if (existing) {
-      existing.monthValues.set(actual.month, {
-        amount: actual.total,
-        isProjected: false,
-      });
+  for (const row of rows) {
+    if (row.type === "income") {
+      summary.income += row.amount;
+      if (row.status === "planned") summary.plannedIncome += row.amount;
+      else summary.confirmedIncome += row.amount;
     } else {
-      const vals = new Map<string, CashflowCell>();
-      vals.set(actual.month, { amount: actual.total, isProjected: false });
-      rowsMap.set(key, {
-        id: key,
-        label: actual.payee || actual.category_name || "Uncategorized",
-        source: "actual",
-        type: actual.type,
-        groupName: "",
-        categoryId: actual.category_id,
-        categoryName: actual.category_name,
-        categoryColor: actual.category_color,
-        recurringId: null,
-        monthValues: vals,
-        dbIds: [],
-      });
+      summary.expenses += row.amount;
+      if (row.status === "planned") summary.plannedExpenses += row.amount;
+      else summary.confirmedExpenses += row.amount;
     }
   }
-
-  // 3. Adhoc items — merge items with same label+type+group into one row
-  for (const item of adhocItems) {
-    const mergeKey = `adhoc:${item.type}:${item.group_name}:${item.label}`;
-    const existing = rowsMap.get(mergeKey);
-
-    if (existing) {
-      existing.dbIds.push(item.id);
-      if (item.month) {
-        existing.monthValues.set(item.month, { amount: item.amount, isProjected: false });
-      } else {
-        for (const month of months) {
-          existing.monthValues.set(month, { amount: item.amount, isProjected: false });
-        }
-      }
-    } else {
-      const vals = new Map<string, CashflowCell>();
-      if (item.month) {
-        vals.set(item.month, { amount: item.amount, isProjected: false });
-      } else {
-        for (const month of months) {
-          vals.set(month, { amount: item.amount, isProjected: false });
-        }
-      }
-
-      rowsMap.set(mergeKey, {
-        id: mergeKey,
-        label: item.label,
-        source: "adhoc",
-        type: item.type,
-        groupName: item.group_name,
-        categoryId: item.category_id,
-        categoryName: null,
-        categoryColor: null,
-        recurringId: item.recurring_id,
-        monthValues: vals,
-        dbIds: [item.id],
-      });
-    }
-  }
+  summary.net = summary.income - summary.expenses;
 
   // Group rows
-  const incomeRows: CashflowRow[] = [];
-  const expenseRows: CashflowRow[] = [];
+  const incomeRows = rows.filter((r) => r.type === "income");
+  const expenseRows = rows.filter((r) => r.type === "expense");
 
-  for (const row of rowsMap.values()) {
-    if (row.type === "income") {
-      incomeRows.push(row);
-    } else {
-      expenseRows.push(row);
-    }
+  const incomeGroups = groupRows(incomeRows, groupBy);
+  const expenseGroups = groupRows(expenseRows, groupBy);
+
+  return { incomeGroups, expenseGroups, summary };
+}
+
+function getGroupKey(row: CashflowRow, groupBy: GroupBy): string {
+  switch (groupBy) {
+    case "category":
+      return row.categoryName || "Uncategorized";
+    case "group_name":
+      return row.groupName || "Ungrouped";
+    case "type":
+      return row.type === "income" ? "Income" : "Expenses";
+    case "none":
+      return "";
+  }
+}
+
+function groupRows(rows: CashflowRow[], groupBy: GroupBy): CashflowGroup[] {
+  if (groupBy === "none") {
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    return rows.length > 0 ? [{ name: "", rows, total }] : [];
   }
 
-  // Sort by total amount descending
-  const sortByTotal = (a: CashflowRow, b: CashflowRow) => {
-    const totalA = Array.from(a.monthValues.values()).reduce((s, c) => s + c.amount, 0);
-    const totalB = Array.from(b.monthValues.values()).reduce((s, c) => s + c.amount, 0);
-    return totalB - totalA;
-  };
-  incomeRows.sort(sortByTotal);
-  expenseRows.sort(sortByTotal);
+  const groupMap = new Map<string, CashflowGroup>();
 
-  // Build groups by category
-  function groupRows(rows: CashflowRow[]): CashflowGroup[] {
-    const groupMap = new Map<string, CashflowGroup>();
-
-    for (const row of rows) {
-      const groupKey = row.groupName || row.categoryName || "Other";
-      let group = groupMap.get(groupKey);
-      if (!group) {
-        group = {
-          name: groupKey,
-          categoryId: row.categoryId,
-          rows: [],
-          monthTotals: new Map(),
-        };
-        groupMap.set(groupKey, group);
-      }
-      group.rows.push(row);
-
-      for (const [month, cell] of row.monthValues) {
-        group.monthTotals.set(month, (group.monthTotals.get(month) ?? 0) + cell.amount);
-      }
+  for (const row of rows) {
+    const key = getGroupKey(row, groupBy);
+    let group = groupMap.get(key);
+    if (!group) {
+      group = { name: key, rows: [], total: 0 };
+      groupMap.set(key, group);
     }
-
-    // Sort groups by total
-    return Array.from(groupMap.values()).sort((a, b) => {
-      const totalA = Array.from(a.monthTotals.values()).reduce((s, v) => s + v, 0);
-      const totalB = Array.from(b.monthTotals.values()).reduce((s, v) => s + v, 0);
-      return totalB - totalA;
-    });
+    group.rows.push(row);
+    group.total += row.amount;
   }
 
-  const incomeGroups = groupRows(incomeRows);
-  const expenseGroups = groupRows(expenseRows);
-
-  // Month totals
-  const monthTotals = new Map<string, { income: number; expense: number; net: number }>();
-  for (const month of months) {
-    let income = 0;
-    let expense = 0;
-    for (const row of rowsMap.values()) {
-      const cell = row.monthValues.get(month);
-      if (cell) {
-        if (row.type === "income") income += cell.amount;
-        else expense += cell.amount;
-      }
-    }
-    monthTotals.set(month, { income, expense, net: income - expense });
-  }
-
-  return { months, incomeGroups, expenseGroups, monthTotals };
+  return Array.from(groupMap.values()).sort((a, b) => b.total - a.total);
 }

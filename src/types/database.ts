@@ -20,6 +20,8 @@ export interface Transaction {
   payee: string;
   notes: string;
   recurring_id: string | null;
+  status: "planned" | "confirmed";
+  group_name: string;
   created_at: string;
   updated_at: string;
 }
@@ -71,20 +73,6 @@ export interface Budget {
   category_id: string;
   month: string; // YYYY-MM
   amount: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CashflowItem {
-  id: string;
-  label: string;
-  type: "income" | "expense";
-  amount: number;
-  category_id: string | null;
-  group_name: string;
-  month: string | null; // null = template, 'YYYY-MM' = specific month
-  recurring_id: string | null;
-  sort_order: number;
   created_at: string;
   updated_at: string;
 }

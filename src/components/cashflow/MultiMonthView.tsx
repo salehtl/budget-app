@@ -1,12 +1,39 @@
 import { useState } from "react";
-import type { CashflowGrid, CashflowGroup, CashflowRow as CashflowRowType } from "../../lib/cashflow.ts";
 import { formatCurrency } from "../../lib/format.ts";
 import { getCurrentMonth } from "../../lib/cashflow.ts";
 
+interface CashflowCell {
+  amount: number;
+  isProjected: boolean;
+}
+
+interface CashflowRow {
+  id: string;
+  label: string;
+  type: "income" | "expense";
+  groupName: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryColor: string | null;
+  monthValues: Map<string, CashflowCell>;
+}
+
+interface CashflowGroup {
+  name: string;
+  categoryId: string | null;
+  rows: CashflowRow[];
+  monthTotals: Map<string, number>;
+}
+
+interface CashflowGrid {
+  months: string[];
+  incomeGroups: CashflowGroup[];
+  expenseGroups: CashflowGroup[];
+  monthTotals: Map<string, { income: number; expense: number; net: number }>;
+}
+
 interface MultiMonthViewProps {
   grid: CashflowGrid;
-  onEditRow?: (rowId: string, month: string, amount: number) => void;
-  onDeleteRow?: (rowId: string) => void;
 }
 
 function formatMonthHeader(month: string): string {
@@ -14,7 +41,7 @@ function formatMonthHeader(month: string): string {
   return new Date(y, m - 1).toLocaleDateString("en-AE", { month: "short", year: "2-digit" });
 }
 
-export function MultiMonthView({ grid, onDeleteRow }: MultiMonthViewProps) {
+export function MultiMonthView({ grid }: MultiMonthViewProps) {
   const currentMonth = getCurrentMonth();
 
   // Running balance
@@ -36,7 +63,7 @@ export function MultiMonthView({ grid, onDeleteRow }: MultiMonthViewProps) {
         }}
       >
         {/* Header */}
-        <div className="sticky left-0 z-10 bg-surface-alt px-3 py-2 text-xs font-medium text-text-muted border-b border-border">
+        <div className="sticky left-0 z-20 bg-surface-alt px-3 py-2 text-xs font-medium text-text-muted border-b border-border">
           Item
         </div>
         {grid.months.map((month) => (
@@ -58,7 +85,7 @@ export function MultiMonthView({ grid, onDeleteRow }: MultiMonthViewProps) {
         {/* Income section */}
         <SectionHeader label="Income" months={grid.months} variant="income" currentMonth={currentMonth} />
         {grid.incomeGroups.map((group) => (
-          <GroupBlock key={group.name} group={group} months={grid.months} currentMonth={currentMonth} onDeleteRow={onDeleteRow} />
+          <GroupBlock key={group.name} group={group} months={grid.months} currentMonth={currentMonth} />
         ))}
 
         {/* Income total */}
@@ -73,7 +100,7 @@ export function MultiMonthView({ grid, onDeleteRow }: MultiMonthViewProps) {
         {/* Expense section */}
         <SectionHeader label="Expenses" months={grid.months} variant="expense" currentMonth={currentMonth} />
         {grid.expenseGroups.map((group) => (
-          <GroupBlock key={group.name} group={group} months={grid.months} currentMonth={currentMonth} onDeleteRow={onDeleteRow} />
+          <GroupBlock key={group.name} group={group} months={grid.months} currentMonth={currentMonth} />
         ))}
 
         {/* Expense total */}
@@ -95,7 +122,7 @@ export function MultiMonthView({ grid, onDeleteRow }: MultiMonthViewProps) {
         />
 
         {/* Running balance row */}
-        <div className="sticky left-0 z-10 bg-primary/5 px-3 py-2 text-xs font-bold border-t-2 border-accent/30 text-accent">
+        <div className="sticky left-0 z-20 bg-surface-alt px-3 py-2 text-xs font-bold border-t-2 border-accent/30 text-accent">
           Running Balance
         </div>
         {grid.months.map((month) => {
@@ -105,7 +132,7 @@ export function MultiMonthView({ grid, onDeleteRow }: MultiMonthViewProps) {
               key={month}
               className={`px-3 py-2 text-xs font-bold text-right border-t-2 border-accent/30 tabular-nums ${
                 bal >= 0 ? "text-success" : "text-danger"
-              } ${month === currentMonth ? "bg-accent/5" : ""}`}
+              } ${month === currentMonth ? "bg-accent/5" : "bg-surface"}`}
             >
               {formatCurrency(bal)}
             </div>
@@ -120,7 +147,6 @@ function SectionHeader({
   label,
   months,
   variant,
-  currentMonth,
 }: {
   label: string;
   months: string[];
@@ -130,8 +156,8 @@ function SectionHeader({
   return (
     <>
       <div
-        className={`sticky left-0 z-10 px-3 py-1.5 text-xs font-bold uppercase tracking-wide border-b border-border ${
-          variant === "income" ? "text-success bg-success/5" : "text-danger bg-danger/5"
+        className={`sticky left-0 z-20 px-3 py-1.5 text-xs font-bold uppercase tracking-wide border-b border-border ${
+          variant === "income" ? "text-success bg-success-light/40" : "text-danger bg-danger-light/40"
         }`}
       >
         {label}
@@ -140,8 +166,8 @@ function SectionHeader({
         <div
           key={month}
           className={`border-b border-border ${
-            variant === "income" ? "bg-success/5" : "bg-danger/5"
-          } ${month === currentMonth ? "!bg-accent/5" : ""}`}
+            variant === "income" ? "bg-success-light/40" : "bg-danger-light/40"
+          }`}
         />
       ))}
     </>
@@ -152,12 +178,10 @@ function GroupBlock({
   group,
   months,
   currentMonth,
-  onDeleteRow,
 }: {
   group: CashflowGroup;
   months: string[];
   currentMonth: string;
-  onDeleteRow?: (rowId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -165,17 +189,12 @@ function GroupBlock({
     <>
       {/* Group header */}
       <div
-        className="sticky left-0 z-10 bg-surface px-3 py-1.5 text-xs font-semibold text-text border-b border-border cursor-pointer flex items-center gap-1.5 hover:bg-surface-alt"
+        className="sticky left-0 z-20 bg-surface px-3 py-1.5 text-xs font-semibold text-text border-b border-border cursor-pointer flex items-center gap-1.5 hover:bg-surface-alt"
         onClick={() => setExpanded(!expanded)}
       >
         <svg
           className={`w-3 h-3 text-text-light transition-transform ${expanded ? "rotate-90" : ""}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
         >
           <polyline points="9 18 15 12 9 6" />
         </svg>
@@ -197,7 +216,7 @@ function GroupBlock({
       {/* Individual rows */}
       {expanded &&
         group.rows.map((row) => (
-          <RowCells key={row.id} row={row} months={months} currentMonth={currentMonth} onDeleteRow={onDeleteRow} />
+          <RowCells key={row.id} row={row} months={months} currentMonth={currentMonth} />
         ))}
     </>
   );
@@ -207,45 +226,15 @@ function RowCells({
   row,
   months,
   currentMonth,
-  onDeleteRow,
 }: {
-  row: CashflowRowType;
+  row: CashflowRow;
   months: string[];
   currentMonth: string;
-  onDeleteRow?: (rowId: string) => void;
 }) {
-  const canDelete = row.source === "adhoc" && onDeleteRow;
-
   return (
     <>
-      <div className="sticky left-0 z-10 bg-surface pl-8 pr-3 py-1 text-xs text-text-muted border-b border-border/50 flex items-center gap-1.5 group">
-        {row.source === "recurring" && (
-          <svg className="w-3 h-3 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-          </svg>
-        )}
-        {row.source === "adhoc" && (
-          <svg className="w-3 h-3 text-warning shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-        )}
+      <div className="sticky left-0 z-20 bg-surface pl-8 pr-3 py-1 text-xs text-text-muted border-b border-border/50 flex items-center gap-1.5">
         <span className="truncate min-w-0">{row.label}</span>
-        {canDelete && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteRow!(row.id);
-            }}
-            className="ml-auto shrink-0 p-0.5 rounded text-text-light hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-            title="Delete row"
-          >
-            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            </svg>
-          </button>
-        )}
       </div>
       {months.map((month) => {
         const cell = row.monthValues.get(month);
@@ -290,7 +279,7 @@ function TotalRow({
 
   return (
     <>
-      <div className={`sticky left-0 z-10 bg-surface-alt px-3 py-2 text-xs font-bold border-b border-border ${colorClass}`}>
+      <div className={`sticky left-0 z-20 bg-surface-alt px-3 py-2 text-xs font-bold border-b border-border ${colorClass}`}>
         {label}
       </div>
       {months.map((month) => {

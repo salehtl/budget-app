@@ -11,7 +11,7 @@ export async function exportJSON(db: DbClient): Promise<string> {
     ]);
 
   const data = {
-    version: 1,
+    version: 2,
     exported_at: new Date().toISOString(),
     categories: categories.rows,
     transactions: transactions.rows,
@@ -25,16 +25,16 @@ export async function exportJSON(db: DbClient): Promise<string> {
 
 export async function exportCSV(db: DbClient): Promise<string> {
   const { rows } = await db.exec(
-    `SELECT t.date, t.type, t.amount, t.payee, t.notes,
+    `SELECT t.date, t.type, t.amount, t.payee, t.notes, t.status, t.group_name,
             COALESCE(c.name, '') as category
      FROM transactions t
      LEFT JOIN categories c ON t.category_id = c.id
      ORDER BY t.date DESC`
   );
 
-  const headers = ["Date", "Type", "Amount", "Payee", "Notes", "Category"];
+  const headers = ["Date", "Type", "Amount", "Payee", "Notes", "Category", "Status", "Group"];
   const csvRows = rows.map((row: any) =>
-    [row.date, row.type, row.amount, csvEscape(row.payee), csvEscape(row.notes), csvEscape(row.category)].join(",")
+    [row.date, row.type, row.amount, csvEscape(row.payee), csvEscape(row.notes), csvEscape(row.category), row.status, csvEscape(row.group_name)].join(",")
   );
 
   return [headers.join(","), ...csvRows].join("\n");

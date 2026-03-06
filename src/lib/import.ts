@@ -49,8 +49,8 @@ export async function importJSON(db: DbClient, jsonString: string): Promise<void
     // Import transactions
     for (const txn of data.transactions) {
       await db.exec(
-        `INSERT INTO transactions (id, amount, type, category_id, date, payee, notes, recurring_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions (id, amount, type, category_id, date, payee, notes, recurring_id, status, group_name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           txn.id,
           txn.amount,
@@ -60,6 +60,8 @@ export async function importJSON(db: DbClient, jsonString: string): Promise<void
           txn.payee ?? "",
           txn.notes ?? "",
           txn.recurring_id ?? null,
+          txn.status ?? "confirmed", // v1 backups won't have status
+          txn.group_name ?? "",      // v1 backups won't have group_name
           txn.created_at ?? new Date().toISOString(),
           txn.updated_at ?? new Date().toISOString(),
         ]

@@ -38,6 +38,8 @@ export function useTransactions(filters?: TransactionFilters) {
       payee?: string;
       notes?: string;
       recurring_id?: string | null;
+      status?: "planned" | "confirmed";
+      group_name?: string;
     }) => {
       const id = crypto.randomUUID();
       await createTransaction(db, { id, ...txn });

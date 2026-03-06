@@ -3,8 +3,7 @@ type DbEventType =
   | "categories-changed"
   | "recurring-changed"
   | "settings-changed"
-  | "tags-changed"
-  | "cashflow-changed";
+  | "tags-changed";
 
 const bus = new EventTarget();
 

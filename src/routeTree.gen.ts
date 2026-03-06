@@ -9,36 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TransactionsRouteImport } from './routes/transactions'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as RecurringRouteImport } from './routes/recurring'
-import { Route as CategoriesRouteImport } from './routes/categories'
-import { Route as CashflowRouteImport } from './routes/cashflow'
+import { Route as OverviewRouteImport } from './routes/overview'
 import { Route as IndexRouteImport } from './routes/index'
 
-const TransactionsRoute = TransactionsRouteImport.update({
-  id: '/transactions',
-  path: '/transactions',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RecurringRoute = RecurringRouteImport.update({
-  id: '/recurring',
-  path: '/recurring',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CategoriesRoute = CategoriesRouteImport.update({
-  id: '/categories',
-  path: '/categories',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CashflowRoute = CashflowRouteImport.update({
-  id: '/cashflow',
-  path: '/cashflow',
+const OverviewRoute = OverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -49,74 +31,36 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/cashflow': typeof CashflowRoute
-  '/categories': typeof CategoriesRoute
-  '/recurring': typeof RecurringRoute
+  '/overview': typeof OverviewRoute
   '/settings': typeof SettingsRoute
-  '/transactions': typeof TransactionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/cashflow': typeof CashflowRoute
-  '/categories': typeof CategoriesRoute
-  '/recurring': typeof RecurringRoute
+  '/overview': typeof OverviewRoute
   '/settings': typeof SettingsRoute
-  '/transactions': typeof TransactionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/cashflow': typeof CashflowRoute
-  '/categories': typeof CategoriesRoute
-  '/recurring': typeof RecurringRoute
+  '/overview': typeof OverviewRoute
   '/settings': typeof SettingsRoute
-  '/transactions': typeof TransactionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/cashflow'
-    | '/categories'
-    | '/recurring'
-    | '/settings'
-    | '/transactions'
+  fullPaths: '/' | '/overview' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/cashflow'
-    | '/categories'
-    | '/recurring'
-    | '/settings'
-    | '/transactions'
-  id:
-    | '__root__'
-    | '/'
-    | '/cashflow'
-    | '/categories'
-    | '/recurring'
-    | '/settings'
-    | '/transactions'
+  to: '/' | '/overview' | '/settings'
+  id: '__root__' | '/' | '/overview' | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  CashflowRoute: typeof CashflowRoute
-  CategoriesRoute: typeof CategoriesRoute
-  RecurringRoute: typeof RecurringRoute
+  OverviewRoute: typeof OverviewRoute
   SettingsRoute: typeof SettingsRoute
-  TransactionsRoute: typeof TransactionsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/transactions': {
-      id: '/transactions'
-      path: '/transactions'
-      fullPath: '/transactions'
-      preLoaderRoute: typeof TransactionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -124,25 +68,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/recurring': {
-      id: '/recurring'
-      path: '/recurring'
-      fullPath: '/recurring'
-      preLoaderRoute: typeof RecurringRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/categories': {
-      id: '/categories'
-      path: '/categories'
-      fullPath: '/categories'
-      preLoaderRoute: typeof CategoriesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cashflow': {
-      id: '/cashflow'
-      path: '/cashflow'
-      fullPath: '/cashflow'
-      preLoaderRoute: typeof CashflowRouteImport
+    '/overview': {
+      id: '/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof OverviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -157,11 +87,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  CashflowRoute: CashflowRoute,
-  CategoriesRoute: CategoriesRoute,
-  RecurringRoute: RecurringRoute,
+  OverviewRoute: OverviewRoute,
   SettingsRoute: SettingsRoute,
-  TransactionsRoute: TransactionsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

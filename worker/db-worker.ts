@@ -67,8 +67,8 @@ async function migrate() {
       }
     }
 
-    // Seed cashflow items if migrating to v2+
-    if (currentVersion < 2) {
+    // Seed cashflow items if migrating from v1 to v2 (but not beyond, since v3 drops the table)
+    if (currentVersion < 2 && SCHEMA_VERSION <= 2) {
       await execMulti(getCashflowSeedSQL());
     }
 
