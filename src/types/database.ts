@@ -74,3 +74,17 @@ export interface Budget {
   created_at: string;
   updated_at: string;
 }
+
+export interface CashflowItem {
+  id: string;
+  label: string;
+  type: "income" | "expense";
+  amount: number;
+  category_id: string | null;
+  group_name: string;
+  month: string | null; // null = template, 'YYYY-MM' = specific month
+  recurring_id: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS categories (
@@ -80,4 +80,41 @@ CREATE INDEX IF NOT EXISTS idx_transactions_recurring ON transactions(recurring_
 CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id);
 CREATE INDEX IF NOT EXISTS idx_recurring_next ON recurring_transactions(next_occurrence);
 CREATE INDEX IF NOT EXISTS idx_budgets_month ON budgets(month);
+
+CREATE TABLE IF NOT EXISTS cashflow_items (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+  amount REAL NOT NULL DEFAULT 0,
+  category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+  group_name TEXT NOT NULL DEFAULT '',
+  month TEXT,
+  recurring_id TEXT REFERENCES recurring_transactions(id) ON DELETE SET NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cashflow_items_month ON cashflow_items(month);
+CREATE INDEX IF NOT EXISTS idx_cashflow_items_type ON cashflow_items(type);
 `;
+
+export const MIGRATIONS: Record<number, string> = {
+  1: `
+CREATE TABLE IF NOT EXISTS cashflow_items (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+  amount REAL NOT NULL DEFAULT 0,
+  category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+  group_name TEXT NOT NULL DEFAULT '',
+  month TEXT,
+  recurring_id TEXT REFERENCES recurring_transactions(id) ON DELETE SET NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cashflow_items_month ON cashflow_items(month);
+CREATE INDEX IF NOT EXISTS idx_cashflow_items_type ON cashflow_items(type);
+`,
+};

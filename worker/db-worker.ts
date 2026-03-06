@@ -2,8 +2,8 @@ import SQLiteESMFactory from "wa-sqlite/dist/wa-sqlite-async.mjs";
 import { Factory } from "wa-sqlite/src/sqlite-api.js";
 import { IDBBatchAtomicVFS } from "wa-sqlite/src/examples/IDBBatchAtomicVFS.js";
 import { OPFSCoopSyncVFS } from "wa-sqlite/src/examples/OPFSCoopSyncVFS.js";
-import { CREATE_TABLES, SCHEMA_VERSION } from "../src/db/schema.ts";
-import { getSeedSQL } from "../src/db/seed.ts";
+import { CREATE_TABLES, SCHEMA_VERSION, MIGRATIONS } from "../src/db/schema.ts";
+import { getSeedSQL, getCashflowSeedSQL } from "../src/db/seed.ts";
 import type { DbWorkerRequest, DbWorkerResponse } from "../src/types/worker.ts";
 
 let sqlite3: any;
@@ -41,36 +41,38 @@ async function initialize() {
   return storageType;
 }
 
+async function execMulti(sql: string) {
+  const statements = sql.split(";").map((s) => s.trim()).filter((s) => s.length > 0);
+  for (const stmt of statements) {
+    await exec(stmt + ";");
+  }
+}
+
 async function migrate() {
   const result = await exec("PRAGMA user_version;");
   const currentVersion = (result.rows[0] as any)?.user_version ?? 0;
 
-  if (currentVersion < SCHEMA_VERSION) {
-    await exec("BEGIN TRANSACTION;");
-    try {
-      // Split and execute each statement
-      const statements = CREATE_TABLES.split(";")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-      for (const stmt of statements) {
-        await exec(stmt + ";");
+  if (currentVersion === 0) {
+    // Fresh install: create all tables + seed
+    await execMulti(CREATE_TABLES);
+    await execMulti(getSeedSQL());
+    await execMulti(getCashflowSeedSQL());
+    await exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+  } else if (currentVersion < SCHEMA_VERSION) {
+    // Incremental migrations
+    for (let v = currentVersion; v < SCHEMA_VERSION; v++) {
+      const migration = MIGRATIONS[v];
+      if (migration) {
+        await execMulti(migration);
       }
-
-      // Seed default categories
-      const seedStatements = getSeedSQL()
-        .split(";")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-      for (const stmt of seedStatements) {
-        await exec(stmt + ";");
-      }
-
-      await exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
-      await exec("COMMIT;");
-    } catch (e) {
-      await exec("ROLLBACK;");
-      throw e;
     }
+
+    // Seed cashflow items if migrating to v2+
+    if (currentVersion < 2) {
+      await execMulti(getCashflowSeedSQL());
+    }
+
+    await exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   }
 }
 

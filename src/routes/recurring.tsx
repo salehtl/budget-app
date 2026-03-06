@@ -10,23 +10,13 @@ import { EmptyState } from "../components/ui/EmptyState.tsx";
 import { useToast } from "../components/ui/Toast.tsx";
 import { useRecurring } from "../hooks/useRecurring.ts";
 import { useCategories } from "../hooks/useCategories.ts";
-import { formatCurrency, formatDate } from "../lib/format.ts";
-import { formatFrequency } from "../lib/recurring.ts";
+import { formatCurrency, formatDate, formatDateShort } from "../lib/format.ts";
+import { formatFrequency, getNextOccurrence } from "../lib/recurring.ts";
 import type { RecurringTransaction } from "../types/database.ts";
 
 export const Route = createFileRoute("/recurring")({
   component: RecurringPage,
 });
-
-const FREQUENCY_OPTIONS = [
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "biweekly", label: "Every 2 weeks" },
-  { value: "monthly", label: "Monthly" },
-  { value: "quarterly", label: "Quarterly" },
-  { value: "yearly", label: "Yearly" },
-  { value: "custom", label: "Custom" },
-];
 
 function RecurringPage() {
   const { items, add, update, remove, processDue } = useRecurring();
@@ -174,6 +164,32 @@ function RecurringPage() {
   );
 }
 
+const FREQUENCIES: { value: RecurringTransaction["frequency"]; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "2 Weeks" },
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "yearly", label: "Yearly" },
+  { value: "custom", label: "Custom" },
+];
+
+function useSchedulePreview(
+  startDate: string,
+  frequency: RecurringTransaction["frequency"],
+  customDays: string,
+) {
+  const days = frequency === "custom" ? parseInt(customDays) || null : null;
+  if (!startDate) return [];
+  const dates: string[] = [startDate];
+  let current = startDate;
+  for (let i = 0; i < 2; i++) {
+    current = getNextOccurrence(current, frequency, days);
+    dates.push(current);
+  }
+  return dates;
+}
+
 function RecurringForm({
   open,
   onClose,
@@ -217,6 +233,8 @@ function RecurringForm({
   const [endDate, setEndDate] = useState(initial?.end_date ?? "");
   const [mode, setMode] = useState<"reminder" | "auto">(initial?.mode ?? "reminder");
 
+  const preview = useSchedulePreview(startDate, frequency, customDays);
+
   const filteredCategories = categories
     .filter((c) => (type === "income" ? c.is_income : !c.is_income))
     .map((c) => ({
@@ -248,110 +266,196 @@ function RecurringForm({
       onClose={onClose}
       title={initial ? "Edit Recurring" : "Add Recurring"}
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="flex rounded-lg border border-border overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setType("expense")}
-            className={`flex-1 py-2 text-sm font-medium transition-colors cursor-pointer ${
-              type === "expense"
-                ? "bg-danger text-white"
-                : "text-text-muted hover:bg-surface-alt"
-            }`}
-          >
-            Expense
-          </button>
-          <button
-            type="button"
-            onClick={() => setType("income")}
-            className={`flex-1 py-2 text-sm font-medium transition-colors cursor-pointer ${
-              type === "income"
-                ? "bg-success text-white"
-                : "text-text-muted hover:bg-surface-alt"
-            }`}
-          >
-            Income
-          </button>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Amount + Type */}
+        <div className="text-center py-2">
+          <div className="flex items-center justify-center gap-1.5 mb-3">
+            <button
+              type="button"
+              onClick={() => setType("expense")}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                type === "expense"
+                  ? "bg-danger text-white"
+                  : "bg-surface-alt text-text-muted hover:text-text"
+              }`}
+            >
+              Expense
+            </button>
+            <button
+              type="button"
+              onClick={() => setType("income")}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                type === "income"
+                  ? "bg-success text-white"
+                  : "bg-surface-alt text-text-muted hover:text-text"
+              }`}
+            >
+              Income
+            </button>
+          </div>
+          <div className="flex items-baseline justify-center gap-1">
+            <span className="text-sm font-medium text-text-muted">AED</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              required
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className={`text-3xl font-bold text-center bg-transparent outline-none w-48 tabular-nums
+                placeholder:text-border-dark ${
+                type === "income" ? "text-success" : "text-text"
+              }`}
+            />
+          </div>
         </div>
 
-        <Input
-          label="Amount (AED)"
-          type="number"
-          step="0.01"
-          min="0"
-          required
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
+        <div className="h-px bg-border" />
 
-        <Select
-          label="Category"
-          options={filteredCategories}
-          placeholder="Select category"
-          value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-        />
-
-        <Input
-          label="Payee"
-          placeholder="e.g., DEWA, Etisalat"
-          value={payee}
-          onChange={(e) => setPayee(e.target.value)}
-        />
-
-        <Input
-          label="Notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-
-        <Select
-          label="Frequency"
-          options={FREQUENCY_OPTIONS}
-          value={frequency}
-          onChange={(e) =>
-            setFrequency(e.target.value as RecurringTransaction["frequency"])
-          }
-        />
-
-        {frequency === "custom" && (
+        {/* Who / What */}
+        <div className="space-y-3">
           <Input
-            label="Every N days"
-            type="number"
-            min="1"
-            required
-            value={customDays}
-            onChange={(e) => setCustomDays(e.target.value)}
+            label="Payee"
+            placeholder="e.g., DEWA, Etisalat"
+            value={payee}
+            onChange={(e) => setPayee(e.target.value)}
           />
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Start Date"
-            type="date"
-            required
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
+          <Select
+            label="Category"
+            options={filteredCategories}
+            placeholder="Select category"
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
           />
           <Input
-            label="End Date"
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
+            label="Notes"
+            placeholder="Optional"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
           />
         </div>
 
-        <Select
-          label="Mode"
-          options={[
-            { value: "reminder", label: "Reminder only" },
-            { value: "auto", label: "Auto-create transaction" },
-          ]}
-          value={mode}
-          onChange={(e) => setMode(e.target.value as "reminder" | "auto")}
-        />
+        <div className="h-px bg-border" />
 
-        <div className="flex justify-between pt-2">
+        {/* Schedule */}
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-text-muted">Frequency</label>
+          <div className="flex flex-wrap gap-1.5">
+            {FREQUENCIES.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setFrequency(f.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                  frequency === f.value
+                    ? "bg-accent text-white"
+                    : "bg-surface-alt text-text-muted hover:text-text hover:bg-border/50"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {frequency === "custom" && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-text-muted">Every</span>
+              <input
+                type="number"
+                min="1"
+                required
+                value={customDays}
+                onChange={(e) => setCustomDays(e.target.value)}
+                className="w-16 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-center
+                  outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+              <span className="text-sm text-text-muted">days</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Start Date"
+              type="date"
+              required
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+            <Input
+              label="End Date"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+
+          {/* Schedule Preview */}
+          {preview.length > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-text-muted py-1">
+              <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              {preview.map((d, i) => (
+                <span key={d} className="flex items-center gap-1.5">
+                  <span className={i === 0 ? "font-medium text-text" : ""}>
+                    {formatDateShort(d)}
+                  </span>
+                  {i < preview.length - 1 && (
+                    <span className="text-border-dark">&rarr;</span>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="h-px bg-border" />
+
+        {/* Mode */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-text-muted">When due</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("auto")}
+              className={`rounded-lg border p-3 text-left transition-colors cursor-pointer ${
+                mode === "auto"
+                  ? "border-accent bg-accent/5"
+                  : "border-border hover:border-border-dark"
+              }`}
+            >
+              <div className={`text-sm font-medium ${mode === "auto" ? "text-accent" : "text-text"}`}>
+                Auto-create
+              </div>
+              <div className="text-[11px] text-text-muted mt-0.5">
+                Transaction added automatically
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("reminder")}
+              className={`rounded-lg border p-3 text-left transition-colors cursor-pointer ${
+                mode === "reminder"
+                  ? "border-accent bg-accent/5"
+                  : "border-border hover:border-border-dark"
+              }`}
+            >
+              <div className={`text-sm font-medium ${mode === "reminder" ? "text-accent" : "text-text"}`}>
+                Reminder
+              </div>
+              <div className="text-[11px] text-text-muted mt-0.5">
+                Notifies you when due
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-between pt-1">
           {onDelete ? (
             <Button type="button" variant="danger" onClick={onDelete}>
               Delete

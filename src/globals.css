@@ -2,7 +2,7 @@
 
 @font-face {
   font-family: "TX-02";
-  src: url("/fonts/TX-02-Regular.woff2") format("woff2");
+  src: url("/fonts/TX-02-Regular.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -10,15 +10,7 @@
 
 @font-face {
   font-family: "TX-02";
-  src: url("/fonts/TX-02-Medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "TX-02";
-  src: url("/fonts/TX-02-Bold.woff2") format("woff2");
+  src: url("/fonts/TX-02-Bold.otf") format("opentype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
