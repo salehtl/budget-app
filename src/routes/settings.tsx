@@ -234,29 +234,25 @@ function SettingsPage() {
 // --- Appearance section ---
 
 function AppearanceSection() {
-  const { theme, toggle } = useTheme();
+  const { preference, setPreference } = useTheme();
 
   return (
     <section className="bg-surface rounded-xl border border-border p-4 mb-4">
       <h2 className="text-sm font-bold mb-3">Appearance</h2>
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium">Dark mode</p>
-          <p className="text-xs text-text-muted">Switch between light and dark themes</p>
+          <p className="text-sm font-medium">Theme</p>
+          <p className="text-xs text-text-muted">Choose your preferred theme</p>
         </div>
-        <button
-          type="button"
-          onClick={toggle}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-            theme === "dark" ? "bg-accent" : "bg-border-dark"
-          }`}
+        <select
+          value={preference}
+          onChange={(e) => setPreference(e.target.value as "light" | "dark" | "system")}
+          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent cursor-pointer"
         >
-          <span
-            className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-              theme === "dark" ? "translate-x-6" : "translate-x-1"
-            }`}
-          />
-        </button>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="system">System</option>
+        </select>
       </div>
     </section>
   );
