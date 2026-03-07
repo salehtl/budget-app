@@ -1,11 +1,6 @@
 import type { ImportErrorCode } from "./anthropic-client.ts";
 import type { ParseProgress } from "./parse-statement.ts";
 
-export interface FileProgress {
-  fileIndex: number;
-  totalFiles: number;
-}
-
 export interface ParsedTransaction {
   date: string; // YYYY-MM-DD
   payee: string;
@@ -20,8 +15,8 @@ export interface ParsedTransaction {
 
 export type ImportState =
   | { step: "idle" }
-  | { step: "processing"; progress: ParseProgress; fileProgress?: FileProgress }
-  | { step: "streaming"; transactions: ParsedTransaction[]; progress: ParseProgress; fileProgress?: FileProgress }
+  | { step: "processing"; progress: ParseProgress }
+  | { step: "streaming"; transactions: ParsedTransaction[]; progress: ParseProgress }
   | { step: "reviewing"; transactions: ParsedTransaction[] }
   | { step: "importing"; transactions: ParsedTransaction[] }
   | { step: "done"; count: number }
