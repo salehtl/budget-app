@@ -59,11 +59,21 @@ export default defineConfig({
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp",
     },
+    proxy: {
+      "/api/anthropic": {
+        target: "https://api.anthropic.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/anthropic/, ""),
+        headers: {
+          "Cross-Origin-Resource-Policy": "cross-origin",
+        },
+      },
+    },
   },
   worker: {
     format: "es",
   },
   optimizeDeps: {
-    exclude: ["wa-sqlite"],
+    exclude: ["wa-sqlite", "pdfjs-dist"],
   },
 });

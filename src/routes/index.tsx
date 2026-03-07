@@ -6,6 +6,8 @@ import { useToast } from "../components/ui/Toast.tsx";
 import { CashflowToolbar } from "../components/cashflow/CashflowToolbar.tsx";
 import { SingleMonthView } from "../components/cashflow/SingleMonthView.tsx";
 import { AddRowDialog } from "../components/cashflow/AddRowDialog.tsx";
+import { PdfImportButton } from "../components/pdf-import/PdfImportButton.tsx";
+import { PdfImportModal } from "../components/pdf-import/PdfImportModal.tsx";
 import { useCashflow } from "../hooks/useCashflow.ts";
 import { useCategories } from "../hooks/useCategories.ts";
 import { useRecurring } from "../hooks/useRecurring.ts";
@@ -22,6 +24,7 @@ function CashflowPage() {
   const [groupBy, setGroupBy] = useState<GroupBy>("group_name");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   const { categories, add: addCategory } = useCategories();
   const { stopRecurrence } = useRecurring();
@@ -45,7 +48,9 @@ function CashflowPage() {
         groupBy={groupBy}
         onGroupByChange={setGroupBy}
         onAddRow={() => setShowAddDialog(true)}
-      />
+      >
+        <PdfImportButton onFileSelect={setPdfFile} />
+      </CashflowToolbar>
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
@@ -142,6 +147,15 @@ function CashflowPage() {
         confirmLabel="Delete"
         variant="danger"
       />
+
+      {pdfFile && (
+        <PdfImportModal
+          open={!!pdfFile}
+          onClose={() => setPdfFile(null)}
+          file={pdfFile}
+          categories={categories}
+        />
+      )}
     </div>
   );
 }

@@ -5,9 +5,15 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  size?: "default" | "wide";
 }
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+const sizeClasses = {
+  default: "max-w-lg",
+  wide: "max-w-4xl",
+};
+
+export function Modal({ open, onClose, title, children, size = "default" }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -30,7 +36,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       className="backdrop:bg-black/40 bg-transparent p-0 m-0 max-w-none max-h-none w-full h-full fixed inset-0"
     >
       <div className="flex items-center justify-center min-h-full p-4">
-        <div className="bg-surface rounded-xl shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className={`bg-surface rounded-xl shadow-lg w-full ${sizeClasses[size]} max-h-[90vh] overflow-y-auto`}>
           <div className="flex items-center justify-between p-4 border-b border-border">
             <h2 className="text-lg font-bold">{title}</h2>
             <button

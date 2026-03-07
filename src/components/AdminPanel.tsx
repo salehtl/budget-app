@@ -76,6 +76,21 @@ export function AdminPanel() {
     await db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   }
 
+  async function handleSeedCategories() {
+    setLoading("seed-categories");
+    setResult(null);
+    try {
+      await execStatements(db, getSeedSQL());
+      emitDbEvent("categories-changed");
+      await fetchTableCounts();
+      setResult("Default categories seeded successfully.");
+    } catch (e: any) {
+      setResult(`Error: ${e.message}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function handleClearOnly() {
     setLoading("clear");
     setResult(null);
@@ -182,6 +197,16 @@ export function AdminPanel() {
               Database Actions
             </h3>
             <div className="space-y-2">
+              <Button
+                variant="secondary"
+                onClick={handleSeedCategories}
+                disabled={loading !== null}
+                className="w-full"
+              >
+                {loading === "seed-categories"
+                  ? "Seeding..."
+                  : "Seed Categories"}
+              </Button>
               <Button
                 variant="danger"
                 onClick={handleClearOnly}

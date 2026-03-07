@@ -131,6 +131,9 @@ function SettingsPage() {
       {/* Categories section */}
       <CategoriesSection />
 
+      {/* AI Integration section */}
+      <AIIntegrationSection />
+
       {/* Auto-export section */}
       {isFileSystemAccessSupported() && (
         <section className="bg-surface rounded-xl border border-border p-4 mb-4">
@@ -221,6 +224,85 @@ function SettingsPage() {
         variant="danger"
       />
     </div>
+  );
+}
+
+// --- AI Integration section ---
+
+function AIIntegrationSection() {
+  const db = useDb();
+  const { toast } = useToast();
+  const [apiKey, setApiKey] = useState("");
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [savedKey, setSavedKey] = useState("");
+  const [savedProxy, setSavedProxy] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      getSetting(db, "anthropic_api_key"),
+      getSetting(db, "anthropic_proxy_url"),
+    ]).then(([key, url]) => {
+      setApiKey(key ?? "");
+      setProxyUrl(url ?? "");
+      setSavedKey(key ?? "");
+      setSavedProxy(url ?? "");
+      setLoaded(true);
+    });
+  }, [db]);
+
+  const hasChanges = apiKey !== savedKey || proxyUrl !== savedProxy;
+
+  async function handleSave() {
+    if (apiKey !== savedKey) {
+      await setSetting(db, "anthropic_api_key", apiKey);
+      setSavedKey(apiKey);
+    }
+    if (proxyUrl !== savedProxy) {
+      await setSetting(db, "anthropic_proxy_url", proxyUrl);
+      setSavedProxy(proxyUrl);
+    }
+    toast("Settings saved");
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <section className="bg-surface rounded-xl border border-border p-4 mb-4">
+      <h2 className="text-sm font-bold mb-3">AI Integration</h2>
+      <p className="text-xs text-text-muted mb-3">
+        Used for PDF statement import. Your API key is stored locally and never sent to any server except Anthropic's API.
+      </p>
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-text-muted mb-1">
+            Anthropic API Key
+          </label>
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-ant-..."
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-text-muted mb-1">
+            Proxy URL
+          </label>
+          <Input
+            value={proxyUrl}
+            onChange={(e) => setProxyUrl(e.target.value)}
+            placeholder="/api/anthropic (default, uses dev proxy or CF worker)"
+          />
+          <p className="text-[10px] text-text-light mt-1">
+            Required in production due to COEP headers. Leave empty to use the default.
+          </p>
+        </div>
+        <Button size="sm" onClick={handleSave} disabled={!hasChanges}>
+          Save
+        </Button>
+      </div>
+    </section>
   );
 }
 

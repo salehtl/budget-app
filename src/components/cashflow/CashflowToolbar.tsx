@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button } from "../ui/Button.tsx";
 import { MonthPicker } from "../ui/MonthPicker.tsx";
 import type { GroupBy } from "../../lib/cashflow.ts";
@@ -8,6 +9,7 @@ interface CashflowToolbarProps {
   groupBy: GroupBy;
   onGroupByChange: (groupBy: GroupBy) => void;
   onAddRow: () => void;
+  children?: ReactNode;
 }
 
 function stepMonth(month: string, delta: number): string {
@@ -22,6 +24,7 @@ export function CashflowToolbar({
   groupBy,
   onGroupByChange,
   onAddRow,
+  children,
 }: CashflowToolbarProps) {
   return (
     <div className="flex items-center gap-2 sm:gap-3 mb-4">
@@ -67,6 +70,7 @@ export function CashflowToolbar({
 
       <div className="flex-1" />
 
+      {children}
       <Button size="sm" onClick={onAddRow}>
         + Add
       </Button>
