@@ -7,7 +7,7 @@ import { useToast } from "../ui/Toast.tsx";
 import { useDb } from "../../context/DbContext.tsx";
 import { getSetting } from "../../db/queries/settings.ts";
 import { parseStatement } from "../../lib/pdf-import/parse-statement.ts";
-import { bulkInsertTransactions } from "../../lib/pdf-import/bulk-insert.ts";
+import { bulkInsertTransactions, getExistingFingerprints, txnFingerprint } from "../../lib/pdf-import/bulk-insert.ts";
 import { ImportError } from "../../lib/pdf-import/anthropic-client.ts";
 import { formatCurrency } from "../../lib/format.ts";
 import type { Category } from "../../types/database.ts";
@@ -26,12 +26,57 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
   const { toast } = useToast();
   const [state, setState] = useState<ImportState>({ step: "idle" });
   const runIdRef = useRef(0);
+  const txnQueueRef = useRef<ParsedTransaction[]>([]);
+  const drainTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Drip queue: reveals buffered transactions one at a time
+  function startDraining() {
+    if (drainTimerRef.current) return;
+    drainTimerRef.current = setInterval(() => {
+      const next = txnQueueRef.current.shift();
+      if (!next) return;
+      setState((prev) => {
+        if (prev.step === "streaming") {
+          return { ...prev, transactions: [...prev.transactions, next] };
+        }
+        if (prev.step === "processing") {
+          return { step: "streaming", transactions: [next], progress: prev.progress };
+        }
+        return prev;
+      });
+    }, 80);
+  }
+
+  function stopDraining() {
+    if (drainTimerRef.current) {
+      clearInterval(drainTimerRef.current);
+      drainTimerRef.current = null;
+    }
+  }
+
+  // Flush remaining queue items instantly (when analysis completes)
+  function flushQueue() {
+    stopDraining();
+    const remaining = txnQueueRef.current.splice(0);
+    if (remaining.length > 0) {
+      setState((prev) => {
+        if (prev.step === "streaming") {
+          return { ...prev, transactions: [...prev.transactions, ...remaining] };
+        }
+        return prev;
+      });
+    }
+  }
+
+  // Cleanup timer on unmount
+  useEffect(() => () => stopDraining(), []);
 
   useEffect(() => {
     if (!open || state.step !== "idle") return;
 
     const runId = ++runIdRef.current;
     const isCurrent = () => runId === runIdRef.current;
+    txnQueueRef.current = [];
 
     async function run() {
       try {
@@ -61,11 +106,38 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
           categories,
           { apiKey, proxyUrl },
           (progress) => {
-            if (isCurrent()) setState({ step: "processing", progress });
+            if (!isCurrent()) return;
+            setState((prev) => {
+              if (prev.step === "streaming") {
+                return { ...prev, progress };
+              }
+              return { step: "processing", progress };
+            });
+          },
+          (txn) => {
+            if (!isCurrent()) return;
+            txnQueueRef.current.push(txn);
+            startDraining();
           },
         );
 
-        if (isCurrent()) {
+        // Flush any remaining queued transactions
+        flushQueue();
+
+        if (isCurrent() && transactions.length > 0) {
+          // Mark duplicates against existing DB transactions
+          const dates = transactions.map((t) => t.date).filter(Boolean);
+          const minDate = dates.reduce((a, b) => (a < b ? a : b));
+          const maxDate = dates.reduce((a, b) => (a > b ? a : b));
+          const existing = await getExistingFingerprints(db, minDate, maxDate);
+
+          const marked = transactions.map((t) => {
+            const isDup = existing.has(txnFingerprint(t.date, t.amount, t.payee));
+            return isDup ? { ...t, duplicate: true, selected: false } : t;
+          });
+
+          setState({ step: "reviewing", transactions: marked });
+        } else if (isCurrent()) {
           setState({ step: "reviewing", transactions });
         }
       } catch (e) {
@@ -101,23 +173,35 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
   const title =
     state.step === "processing"
       ? "Importing Statement"
-      : state.step === "reviewing" || state.step === "importing"
-        ? "Review Transactions"
-        : state.step === "done"
-          ? "Import Complete"
-          : state.step === "error"
-            ? state.title
-            : "Import PDF";
+      : state.step === "streaming"
+        ? "Analyzing Statement"
+        : state.step === "reviewing" || state.step === "importing"
+          ? "Review Transactions"
+          : state.step === "done"
+            ? "Import Complete"
+            : state.step === "error"
+              ? state.title
+              : "Import PDF";
+
+  const isWide = state.step === "reviewing" || state.step === "importing" || state.step === "streaming";
 
   return (
     <Modal
       open={open}
       onClose={handleClose}
       title={title}
-      size={state.step === "reviewing" || state.step === "importing" ? "wide" : "default"}
+      size={isWide ? "wide" : "default"}
     >
       {state.step === "processing" && (
         <ProcessingView progress={state.progress} />
+      )}
+      {state.step === "streaming" && (
+        <StreamingView
+          transactions={state.transactions}
+          progress={state.progress}
+          categories={categories}
+          fileName={file.name}
+        />
       )}
       {(state.step === "reviewing" || state.step === "importing") && (
         <ReviewView
@@ -271,6 +355,149 @@ function ProcessingView({ progress }: { progress: ParseProgress }) {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// --- Streaming (transactions arriving live) ---
+
+function StreamingRow({ txn, categories, isNew }: { txn: ParsedTransaction; categories: Category[]; isNew: boolean }) {
+  const rowRef = useRef<HTMLTableRowElement>(null);
+
+  useEffect(() => {
+    if (isNew && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [isNew]);
+
+  const cat = txn.category_id ? categories.find((c) => c.id === txn.category_id) : null;
+
+  return (
+    <tr
+      ref={rowRef}
+      className="animate-stream-in"
+    >
+      <td className="p-2 text-xs tabular-nums text-text-muted whitespace-nowrap">{txn.date}</td>
+      <td className="p-2 text-xs">{txn.payee}</td>
+      <td className="p-2 text-xs text-right tabular-nums font-medium whitespace-nowrap">
+        {formatCurrency(txn.amount)}
+      </td>
+      <td className="p-2">
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+          txn.type === "income" ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+        }`}>
+          {txn.type === "income" ? "Income" : "Expense"}
+        </span>
+      </td>
+      <td className="p-2 text-xs text-text-muted truncate max-w-[140px]">
+        {cat ? (
+          <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+            {cat.name}
+          </span>
+        ) : (
+          <span className="text-text-light italic">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function StreamingView({
+  transactions,
+  progress,
+  categories,
+  fileName,
+}: {
+  transactions: ParsedTransaction[];
+  progress: ParseProgress;
+  categories: Category[];
+  fileName: string;
+}) {
+  const prevCountRef = useRef(0);
+  const newStartIndex = prevCountRef.current;
+
+  useEffect(() => {
+    prevCountRef.current = transactions.length;
+  }, [transactions.length]);
+
+  const income = transactions.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const expense = transactions.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+
+  return (
+    <div className="animate-slide-up">
+      {/* Live status bar */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2.5 text-xs text-text-muted">
+          <span className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
+            </span>
+            <span className="font-bold text-text tabular-nums">{transactions.length} found</span>
+          </span>
+          <span className="text-border">·</span>
+          <span className="truncate max-w-[180px]">{fileName}</span>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] tabular-nums">
+          {income > 0 && <span className="text-success font-medium">+{formatCurrency(income)}</span>}
+          {expense > 0 && <span className="text-danger font-medium">-{formatCurrency(expense)}</span>}
+        </div>
+      </div>
+
+      {/* Progress indicator */}
+      {progress.totalBatches != null && progress.totalBatches > 1 && (
+        <div className="mb-3">
+          <div className="flex justify-between text-[10px] text-text-light mb-1">
+            <span>{progress.message}</span>
+            <span>{Math.round(((progress.batch ?? 0) / progress.totalBatches) * 100)}%</span>
+          </div>
+          <div className="h-1 bg-border rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent rounded-full transition-all duration-700 ease-out"
+              style={{ width: `${((progress.batch ?? 0) / progress.totalBatches) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Streaming table */}
+      <div className="max-h-[50vh] overflow-y-auto border border-border rounded-lg scroll-smooth">
+        <table className="w-full text-sm">
+          <thead className="bg-surface-alt sticky top-0 z-10 border-b border-border">
+            <tr className="text-left text-[11px] text-text-muted uppercase tracking-wide">
+              <th className="p-2 font-medium">Date</th>
+              <th className="p-2 font-medium">Payee</th>
+              <th className="p-2 text-right font-medium">Amount</th>
+              <th className="p-2 w-20 font-medium">Type</th>
+              <th className="p-2 w-36 font-medium">Category</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60">
+            {transactions.map((txn, i) => (
+              <StreamingRow
+                key={i}
+                txn={txn}
+                categories={categories}
+                isNew={i >= newStartIndex}
+              />
+            ))}
+            {/* Analyzing indicator row */}
+            <tr>
+              <td colSpan={5} className="p-2">
+                <div className="flex items-center gap-2 text-text-light">
+                  <span className="w-3 h-3 border-2 border-border border-t-accent rounded-full animate-spin" />
+                  <span className="text-[11px]">
+                    {progress.totalBatches != null && progress.totalBatches > 1
+                      ? `Analyzing batch ${progress.batch ?? 1} of ${progress.totalBatches}...`
+                      : "Analyzing..."}
+                  </span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -511,15 +738,16 @@ function ReviewView({
   const selectedCount = rows.filter((r) => r.selected).length;
   const allSelected = rows.length > 0 && selectedCount === rows.length;
 
-  const { totals, uncategorizedCount } = useMemo(() => {
-    let income = 0, expense = 0, uncategorized = 0;
+  const { totals, uncategorizedCount, duplicateCount } = useMemo(() => {
+    let income = 0, expense = 0, uncategorized = 0, duplicates = 0;
     for (const r of rows) {
+      if (r.duplicate) duplicates++;
       if (!r.selected) continue;
       if (r.type === "income") income += r.amount;
       else expense += r.amount;
       if (!r.category_id) uncategorized++;
     }
-    return { totals: { income, expense }, uncategorizedCount: uncategorized };
+    return { totals: { income, expense }, uncategorizedCount: uncategorized, duplicateCount: duplicates };
   }, [rows]);
 
   function updateRow(index: number, updates: Partial<ParsedTransaction>) {
@@ -546,11 +774,18 @@ function ReviewView({
           <span className="text-border">·</span>
           <span className="truncate max-w-[180px]">{fileName}</span>
         </div>
-        {uncategorizedCount > 0 && (
-          <span className="text-[11px] text-warning bg-warning/8 px-2 py-0.5 rounded-full font-medium">
-            {uncategorizedCount} uncategorized
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {duplicateCount > 0 && (
+            <span className="text-[11px] text-text-muted bg-surface-alt px-2 py-0.5 rounded-full font-medium border border-border">
+              {duplicateCount} duplicate{duplicateCount !== 1 ? "s" : ""} skipped
+            </span>
+          )}
+          {uncategorizedCount > 0 && (
+            <span className="text-[11px] text-warning bg-warning/8 px-2 py-0.5 rounded-full font-medium">
+              {uncategorizedCount} uncategorized
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -657,13 +892,18 @@ function ReviewRow({
   disabled: boolean;
 }) {
   const isUncategorized = row.selected && !row.category_id;
+  const isDuplicate = !!row.duplicate;
 
   return (
     <tr
       className={`transition-colors ${
         row.selected ? "" : "opacity-35"
       } ${
-        isUncategorized ? "bg-warning/[0.03]" : index % 2 === 1 ? "bg-surface-alt/30" : ""
+        isDuplicate
+          ? "bg-text-muted/[0.03]"
+          : isUncategorized
+            ? "bg-warning/[0.03]"
+            : index % 2 === 1 ? "bg-surface-alt/30" : ""
       } hover:bg-surface-alt/50`}
     >
       <td className="p-2">
@@ -685,13 +925,20 @@ function ReviewRow({
         />
       </td>
       <td className="p-2">
-        <input
-          type="text"
-          value={row.payee}
-          onChange={(e) => onUpdate(index, { payee: e.target.value })}
-          className="bg-transparent border-b border-transparent hover:border-border focus:border-accent outline-none text-xs w-full"
-          disabled={disabled}
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            value={row.payee}
+            onChange={(e) => onUpdate(index, { payee: e.target.value })}
+            className="bg-transparent border-b border-transparent hover:border-border focus:border-accent outline-none text-xs flex-1 min-w-0"
+            disabled={disabled}
+          />
+          {isDuplicate && (
+            <span className="text-[9px] font-semibold text-text-light bg-border/50 px-1.5 py-px rounded shrink-0" title="A matching transaction already exists in the database">
+              Exists
+            </span>
+          )}
+        </div>
       </td>
       <td className="p-2 text-right">
         <input

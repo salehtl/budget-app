@@ -101,26 +101,35 @@ function classifyApiError(err: unknown): ImportError {
   );
 }
 
-export async function callClaude(
-  config: AnthropicConfig,
-  systemPrompt: string,
-  imageContents: { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } }[],
-): Promise<string> {
-  // Route through local proxy by default (avoids CORS/COEP issues).
-  // Custom proxy URL overrides the default.
+function makeClient(config: AnthropicConfig): Anthropic {
   const baseURL = config.proxyUrl
     ? config.proxyUrl.replace(/\/$/, "")
     : `${window.location.origin}/api/anthropic`;
 
-  const client = new Anthropic({
+  return new Anthropic({
     apiKey: config.apiKey,
     dangerouslyAllowBrowser: true,
     baseURL,
   });
+}
+
+const MODEL = "claude-haiku-4-5-20251001";
+
+/**
+ * Stream a Claude response, calling onObject for each complete JSON object
+ * found in the streamed array. Returns the full accumulated text.
+ */
+export async function callClaudeStreaming(
+  config: AnthropicConfig,
+  systemPrompt: string,
+  imageContents: { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } }[],
+  onObject?: (obj: unknown) => void,
+): Promise<string> {
+  const client = makeClient(config);
 
   try {
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+    const stream = client.messages.stream({
+      model: MODEL,
       max_tokens: 8192,
       system: systemPrompt,
       messages: [
@@ -134,8 +143,21 @@ export async function callClaude(
       ],
     });
 
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
+    let accumulated = "";
+    let parseOffset = 0; // how far we've successfully parsed
+
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        accumulated += event.delta.text;
+
+        // Try to extract complete JSON objects from the stream
+        if (onObject) {
+          parseOffset = extractStreamedObjects(accumulated, parseOffset, onObject);
+        }
+      }
+    }
+
+    if (!accumulated.trim()) {
       throw new ImportError(
         "parse_error",
         "Empty Response",
@@ -144,9 +166,79 @@ export async function callClaude(
       );
     }
 
-    return textBlock.text;
+    return accumulated;
   } catch (e) {
     if (e instanceof ImportError) throw e;
     throw classifyApiError(e);
   }
+}
+
+/**
+ * Incrementally extract complete JSON objects from a streaming JSON array.
+ * Tracks brace depth to find object boundaries without parsing partial JSON.
+ * Returns the new parse offset.
+ */
+function extractStreamedObjects(
+  text: string,
+  offset: number,
+  onObject: (obj: unknown) => void,
+): number {
+  let i = offset;
+
+  // Skip to first '[' if we haven't started
+  if (i === 0) {
+    const start = text.indexOf("[");
+    if (start === -1) return 0;
+    i = start + 1;
+  }
+
+  while (i < text.length) {
+    // Skip whitespace and commas between objects
+    const ch = text[i];
+    if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t" || ch === ",") {
+      i++;
+      continue;
+    }
+
+    // End of array
+    if (ch === "]") break;
+
+    // Start of an object
+    if (ch === "{") {
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+      let j = i;
+
+      for (; j < text.length; j++) {
+        const c = text[j]!;
+        if (escaped) { escaped = false; continue; }
+        if (c === "\\") { escaped = true; continue; }
+        if (c === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (c === "{") depth++;
+        if (c === "}") {
+          depth--;
+          if (depth === 0) {
+            // Found a complete object
+            try {
+              const obj = JSON.parse(text.slice(i, j + 1));
+              onObject(obj);
+            } catch {
+              // Malformed object, skip it
+            }
+            i = j + 1;
+            break;
+          }
+        }
+      }
+
+      // If we didn't close the object, stop — need more data
+      if (depth > 0) break;
+    } else {
+      i++;
+    }
+  }
+
+  return i;
 }

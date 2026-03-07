@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Button } from "../ui/Button.tsx";
 import { MonthPicker } from "../ui/MonthPicker.tsx";
+import { getCurrentMonth } from "../../lib/format.ts";
 import type { GroupBy } from "../../lib/cashflow.ts";
 
 interface CashflowToolbarProps {
@@ -50,6 +51,17 @@ export function CashflowToolbar({
           </svg>
         </button>
       </div>
+
+      {/* Today — appears only when not on current month */}
+      {month !== getCurrentMonth() && (
+        <button
+          onClick={() => onMonthChange(getCurrentMonth())}
+          className="px-2 py-1 rounded-lg text-[11px] font-medium text-accent border border-accent/20 hover:bg-accent/8 transition-colors cursor-pointer"
+          title="Go to current month"
+        >
+          Today
+        </button>
+      )}
 
       {/* Group by */}
       <div className="relative">

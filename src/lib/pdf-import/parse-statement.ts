@@ -2,9 +2,10 @@ import type { Category } from "../../types/database.ts";
 import type { ParsedTransaction } from "./types.ts";
 import type { PageImage } from "./pdf-to-images.ts";
 import { pdfToImages } from "./pdf-to-images.ts";
-import { callClaude, ImportError, type AnthropicConfig } from "./anthropic-client.ts";
+import { callClaudeStreaming, ImportError, type AnthropicConfig } from "./anthropic-client.ts";
 
-const PAGES_PER_BATCH = 10;
+const PAGES_PER_BATCH = 5;
+const MAX_CONCURRENT = 3;
 
 export interface ParseProgress {
   message: string;
@@ -45,30 +46,6 @@ Rules:
 - For dates, use the transaction date (not posting date) when both are shown`;
 }
 
-function extractJSON(text: string): unknown {
-  // Try direct parse first
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Find JSON array bounds
-    const start = text.indexOf("[");
-    const end = text.lastIndexOf("]");
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(text.slice(start, end + 1));
-      } catch {
-        // Fall through
-      }
-    }
-    throw new ImportError(
-      "parse_error",
-      "Unreadable Response",
-      "The AI response could not be parsed as valid JSON.",
-      "Try again — the AI occasionally produces malformed output.",
-    );
-  }
-}
-
 function deduplicate(transactions: ParsedTransaction[]): ParsedTransaction[] {
   const seen = new Set<string>();
   return transactions.filter((t) => {
@@ -79,19 +56,18 @@ function deduplicate(transactions: ParsedTransaction[]): ParsedTransaction[] {
   });
 }
 
-function resolveCategoryIds(
-  transactions: ParsedTransaction[],
-  categories: Category[],
-): ParsedTransaction[] {
-  const byName = new Map<string, string>();
-  for (const c of categories) {
-    byName.set(c.name.toLowerCase(), c.id);
-  }
 
-  return transactions.map((t) => ({
-    ...t,
-    category_id: t.category ? (byName.get(t.category.toLowerCase()) ?? null) : null,
-  }));
+function rawToTransaction(item: any): ParsedTransaction {
+  return {
+    date: String(item.date ?? ""),
+    payee: String(item.payee ?? ""),
+    amount: Math.abs(Number(item.amount) || 0),
+    type: item.type === "income" ? "income" : "expense",
+    category: item.category ? String(item.category) : null,
+    category_id: null,
+    notes: String(item.notes ?? ""),
+    selected: true,
+  };
 }
 
 export async function parseStatement(
@@ -99,6 +75,7 @@ export async function parseStatement(
   categories: Category[],
   config: AnthropicConfig,
   onProgress?: (progress: ParseProgress) => void,
+  onTransaction?: (txn: ParsedTransaction) => void,
 ): Promise<ParsedTransaction[]> {
   // Step 1: Render PDF to images
   onProgress?.({ message: "Loading PDF...", phase: "rendering", fileName: file.name });
@@ -114,7 +91,7 @@ export async function parseStatement(
     throw new ImportError(
       "pdf_error",
       "PDF Error",
-      msg.includes("password") ? "This PDF is password-protected." : `Failed to read PDF: ${msg.slice(0, 100)}`,
+      msg.includes("password") ? "This PDF is password-protected." : "Failed to read the PDF file.",
       msg.includes("password")
         ? "Remove the password protection and try again."
         : "Make sure the file is a valid PDF document.",
@@ -137,28 +114,29 @@ export async function parseStatement(
     fileName: file.name,
   });
 
-  // Step 2: Batch pages and call Claude
+  // Step 2: Batch pages and call Claude in parallel with streaming
   const systemPrompt = buildSystemPrompt(categories);
   const allTransactions: ParsedTransaction[] = [];
+  const categoryMap = buildCategoryMap(categories);
 
   const batches: PageImage[][] = [];
   for (let i = 0; i < images.length; i += PAGES_PER_BATCH) {
     batches.push(images.slice(i, i + PAGES_PER_BATCH));
   }
 
-  for (let b = 0; b < batches.length; b++) {
-    const batch = batches[b]!;
-    onProgress?.({
-      message: batches.length > 1
-        ? `Analyzing pages (batch ${b + 1} of ${batches.length})...`
-        : "Analyzing statement...",
-      phase: "analyzing",
-      pageCount: images.length,
-      fileName: file.name,
-      batch: b + 1,
-      totalBatches: batches.length,
-    });
+  let batchesDone = 0;
 
+  onProgress?.({
+    message: "Analyzing statement...",
+    phase: "analyzing",
+    pageCount: images.length,
+    fileName: file.name,
+    batch: 0,
+    totalBatches: batches.length,
+  });
+
+  // Process batches with controlled concurrency
+  async function processBatch(batch: PageImage[]) {
     const imageContents = batch.map((img) => ({
       type: "image" as const,
       source: {
@@ -168,37 +146,48 @@ export async function parseStatement(
       },
     }));
 
-    const responseText = await callClaude(config, systemPrompt, imageContents);
-    const parsed = extractJSON(responseText);
+    const batchTxns: ParsedTransaction[] = [];
 
-    if (!Array.isArray(parsed)) {
-      throw new ImportError(
-        "parse_error",
-        "Unexpected Response",
-        "The AI did not return a list of transactions.",
-        "Try again — the AI occasionally misinterprets the format.",
-      );
-    }
+    await callClaudeStreaming(config, systemPrompt, imageContents, (obj) => {
+      const txn = rawToTransaction(obj);
+      txn.category_id = txn.category
+        ? (categoryMap.get(txn.category.toLowerCase()) ?? null)
+        : null;
+      batchTxns.push(txn);
+      onTransaction?.(txn);
+    });
 
-    for (const item of parsed) {
-      allTransactions.push({
-        date: String(item.date ?? ""),
-        payee: String(item.payee ?? ""),
-        amount: Math.abs(Number(item.amount) || 0),
-        type: item.type === "income" ? "income" : "expense",
-        category: item.category ? String(item.category) : null,
-        category_id: null,
-        notes: String(item.notes ?? ""),
-        selected: true,
-      });
-    }
+    batchesDone++;
+    onProgress?.({
+      message: batchesDone < batches.length
+        ? `Analyzed ${batchesDone} of ${batches.length} batches...`
+        : "Finishing up...",
+      phase: "analyzing",
+      pageCount: images.length,
+      fileName: file.name,
+      batch: batchesDone,
+      totalBatches: batches.length,
+    });
+
+    return batchTxns;
   }
 
-  // Step 3: Deduplicate and resolve category IDs
-  const unique = deduplicate(allTransactions);
-  const resolved = resolveCategoryIds(unique, categories);
+  // Run batches with max concurrency
+  const results: ParsedTransaction[][] = [];
+  for (let i = 0; i < batches.length; i += MAX_CONCURRENT) {
+    const chunk = batches.slice(i, i + MAX_CONCURRENT);
+    const chunkResults = await Promise.all(chunk.map(processBatch));
+    results.push(...chunkResults);
+  }
 
-  if (resolved.length === 0) {
+  for (const batch of results) {
+    allTransactions.push(...batch);
+  }
+
+  // Step 3: Deduplicate (category IDs already resolved during streaming)
+  const unique = deduplicate(allTransactions);
+
+  if (unique.length === 0) {
     throw new ImportError(
       "no_transactions",
       "No Transactions Found",
@@ -208,11 +197,19 @@ export async function parseStatement(
   }
 
   onProgress?.({
-    message: `Found ${resolved.length} transactions`,
+    message: `Found ${unique.length} transactions`,
     phase: "done",
     pageCount: images.length,
     fileName: file.name,
   });
 
-  return resolved;
+  return unique;
+}
+
+function buildCategoryMap(categories: Category[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const c of categories) {
+    map.set(c.name.toLowerCase(), c.id);
+  }
+  return map;
 }

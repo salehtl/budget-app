@@ -10,11 +10,13 @@ export interface ParsedTransaction {
   category_id: string | null; // resolved category ID
   notes: string;
   selected: boolean;
+  duplicate?: boolean; // true if a matching transaction exists in the DB
 }
 
 export type ImportState =
   | { step: "idle" }
   | { step: "processing"; progress: ParseProgress }
+  | { step: "streaming"; transactions: ParsedTransaction[]; progress: ParseProgress }
   | { step: "reviewing"; transactions: ParsedTransaction[] }
   | { step: "importing"; transactions: ParsedTransaction[] }
   | { step: "done"; count: number }

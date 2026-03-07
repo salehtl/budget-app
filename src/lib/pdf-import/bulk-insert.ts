@@ -2,6 +2,31 @@ import type { DbClient } from "../../db/client.ts";
 import type { ParsedTransaction } from "./types.ts";
 import { emitDbEvent } from "../db-events.ts";
 
+/** Normalized fingerprint for duplicate detection: date|amount|payee_lower_trimmed */
+export function txnFingerprint(date: string, amount: number, payee: string): string {
+  return `${date}|${amount}|${payee.toLowerCase().trim()}`;
+}
+
+/**
+ * Build a Set of fingerprints from existing DB transactions within a date range.
+ * Used to detect duplicates before import.
+ */
+export async function getExistingFingerprints(
+  db: DbClient,
+  minDate: string,
+  maxDate: string,
+): Promise<Set<string>> {
+  const { rows } = await db.exec<{ date: string; amount: number; payee: string }>(
+    `SELECT date, amount, payee FROM transactions WHERE date >= ? AND date <= ?`,
+    [minDate, maxDate],
+  );
+  const set = new Set<string>();
+  for (const r of rows) {
+    set.add(txnFingerprint(r.date, r.amount, r.payee));
+  }
+  return set;
+}
+
 export async function bulkInsertTransactions(
   db: DbClient,
   transactions: ParsedTransaction[],
