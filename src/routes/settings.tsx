@@ -292,10 +292,10 @@ function AIIntegrationSection() {
           <Input
             value={proxyUrl}
             onChange={(e) => setProxyUrl(e.target.value)}
-            placeholder="/api/anthropic (default, uses dev proxy or CF worker)"
+            placeholder="https://api.anthropic.com (default)"
           />
           <p className="text-[10px] text-text-light mt-1">
-            Required in production due to COEP headers. Leave empty to use the default.
+            Optional. Only set this if you use a custom proxy. Leave empty to call Anthropic directly.
           </p>
         </div>
         <Button size="sm" onClick={handleSave} disabled={!hasChanges}>

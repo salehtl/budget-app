@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Modal } from "../ui/Modal.tsx";
 import { Button } from "../ui/Button.tsx";
 import { CategoryCombo } from "../ui/CategoryCombo.tsx";
@@ -24,15 +25,18 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
   const db = useDb();
   const { toast } = useToast();
   const [state, setState] = useState<ImportState>({ step: "idle" });
+  const runIdRef = useRef(0);
 
   useEffect(() => {
     if (!open || state.step !== "idle") return;
 
-    let cancelled = false;
+    const runId = ++runIdRef.current;
+    const isCurrent = () => runId === runIdRef.current;
 
     async function run() {
       try {
         const apiKey = await getSetting(db, "anthropic_api_key");
+        if (!isCurrent()) return;
         if (!apiKey) {
           setState({
             step: "error",
@@ -45,7 +49,7 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
         }
 
         const proxyUrl =
-          (await getSetting(db, "anthropic_proxy_url")) || "/api/anthropic";
+          (await getSetting(db, "anthropic_proxy_url")) || "";
 
         setState({
           step: "processing",
@@ -57,15 +61,15 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
           categories,
           { apiKey, proxyUrl },
           (progress) => {
-            if (!cancelled) setState({ step: "processing", progress });
+            if (isCurrent()) setState({ step: "processing", progress });
           },
         );
 
-        if (!cancelled) {
+        if (isCurrent()) {
           setState({ step: "reviewing", transactions });
         }
       } catch (e) {
-        if (cancelled) return;
+        if (!isCurrent()) return;
         if (e instanceof ImportError) {
           setState({
             step: "error",
@@ -87,7 +91,6 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
     }
 
     run();
-    return () => { cancelled = true; };
   }, [open, state.step, db, file, categories]);
 
   function handleClose() {
@@ -118,7 +121,7 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
       )}
       {(state.step === "reviewing" || state.step === "importing") && (
         <ReviewView
-          transactions={state.step === "reviewing" ? state.transactions : state.transactions}
+          transactions={state.transactions}
           categories={categories}
           importing={state.step === "importing"}
           onImport={async (txns) => {
@@ -359,7 +362,7 @@ const ERROR_CONFIG: Record<string, {
       </svg>
     ),
     color: "danger",
-    retryable: false,
+    retryable: true,
     settingsLink: true,
   },
   pdf_error: {
@@ -434,6 +437,7 @@ function ErrorView({
   onRetry: () => void;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const config = ERROR_CONFIG[code] ?? ERROR_CONFIG["api_error"]!;
   const colors = COLOR_CLASSES[config.color] ?? COLOR_CLASSES["danger"]!;
 
@@ -471,7 +475,7 @@ function ErrorView({
             size="sm"
             onClick={() => {
               onClose();
-              window.location.pathname = "/settings";
+              navigate({ to: "/settings" });
             }}
           >
             Open Settings
@@ -507,18 +511,16 @@ function ReviewView({
   const selectedCount = rows.filter((r) => r.selected).length;
   const allSelected = rows.length > 0 && selectedCount === rows.length;
 
-  const totals = useMemo(() => {
-    const selected = rows.filter((r) => r.selected);
-    const income = selected
-      .filter((r) => r.type === "income")
-      .reduce((s, r) => s + r.amount, 0);
-    const expense = selected
-      .filter((r) => r.type === "expense")
-      .reduce((s, r) => s + r.amount, 0);
-    return { income, expense };
+  const { totals, uncategorizedCount } = useMemo(() => {
+    let income = 0, expense = 0, uncategorized = 0;
+    for (const r of rows) {
+      if (!r.selected) continue;
+      if (r.type === "income") income += r.amount;
+      else expense += r.amount;
+      if (!r.category_id) uncategorized++;
+    }
+    return { totals: { income, expense }, uncategorizedCount: uncategorized };
   }, [rows]);
-
-  const uncategorizedCount = rows.filter((r) => r.selected && !r.category_id).length;
 
   function updateRow(index: number, updates: Partial<ParsedTransaction>) {
     setRows((prev) =>

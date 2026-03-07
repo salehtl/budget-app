@@ -3,7 +3,7 @@ import { Factory } from "wa-sqlite/src/sqlite-api.js";
 import { IDBBatchAtomicVFS } from "wa-sqlite/src/examples/IDBBatchAtomicVFS.js";
 import { OPFSCoopSyncVFS } from "wa-sqlite/src/examples/OPFSCoopSyncVFS.js";
 import { CREATE_TABLES, SCHEMA_VERSION, MIGRATIONS } from "../src/db/schema.ts";
-import { getSeedSQL, getCashflowSeedSQL } from "../src/db/seed.ts";
+import { getSeedSQL } from "../src/db/seed.ts";
 import type { DbWorkerRequest, DbWorkerResponse } from "../src/types/worker.ts";
 
 let sqlite3: any;
@@ -53,10 +53,9 @@ async function migrate() {
   const currentVersion = (result.rows[0] as any)?.user_version ?? 0;
 
   if (currentVersion === 0) {
-    // Fresh install: create all tables + seed
+    // Fresh install: create tables + seed default categories only
     await execMulti(CREATE_TABLES);
     await execMulti(getSeedSQL());
-    await execMulti(getCashflowSeedSQL());
     await exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   } else if (currentVersion < SCHEMA_VERSION) {
     // Incremental migrations
@@ -65,11 +64,6 @@ async function migrate() {
       if (migration) {
         await execMulti(migration);
       }
-    }
-
-    // Seed cashflow items if migrating from v1 to v2 (but not beyond, since v3 drops the table)
-    if (currentVersion < 2 && SCHEMA_VERSION <= 2) {
-      await execMulti(getCashflowSeedSQL());
     }
 
     await exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
@@ -116,9 +110,7 @@ self.addEventListener("message", async (event: MessageEvent<DbWorkerRequest>) =>
 
   if (!ready) {
     try {
-      const st = await initPromise;
-      ready = true;
-      self.postMessage({ id: -1, type: "ready", storageType: st } satisfies DbWorkerResponse);
+      await initPromise;
     } catch (e: any) {
       self.postMessage({
         id,

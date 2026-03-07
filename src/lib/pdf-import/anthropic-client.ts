@@ -1,3 +1,5 @@
+import Anthropic from "@anthropic-ai/sdk";
+
 export interface AnthropicConfig {
   apiKey: string;
   proxyUrl: string;
@@ -27,38 +29,8 @@ export class ImportError extends Error {
   }
 }
 
-interface ContentBlock {
-  type: string;
-  text?: string;
-}
-
-interface AnthropicResponse {
-  content: ContentBlock[];
-  stop_reason: string;
-}
-
-interface AnthropicErrorBody {
-  error?: {
-    type?: string;
-    message?: string;
-  };
-}
-
-function parseErrorBody(text: string): AnthropicErrorBody | null {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function classifyApiError(status: number, body: string): ImportError {
-  const parsed = parseErrorBody(body);
-  const errorType = parsed?.error?.type ?? "";
-  const errorMsg = parsed?.error?.message ?? body;
-  const lower = errorMsg.toLowerCase();
-
-  if (status === 401) {
+function classifyApiError(err: unknown): ImportError {
+  if (err instanceof Anthropic.AuthenticationError) {
     return new ImportError(
       "invalid_api_key",
       "Invalid API Key",
@@ -67,16 +39,25 @@ function classifyApiError(status: number, body: string): ImportError {
     );
   }
 
-  if (status === 403 || lower.includes("credit") || lower.includes("billing") || lower.includes("balance")) {
+  if (err instanceof Anthropic.PermissionDeniedError) {
+    const msg = err.message.toLowerCase();
+    if (msg.includes("credit") || msg.includes("billing") || msg.includes("balance")) {
+      return new ImportError(
+        "credits_exhausted",
+        "No API Credits",
+        "Your Anthropic account has insufficient credits.",
+        "Add credits at console.anthropic.com, then try again.",
+      );
+    }
     return new ImportError(
-      "credits_exhausted",
-      "No API Credits",
-      "Your Anthropic account has insufficient credits.",
-      "Add credits at console.anthropic.com, then try again.",
+      "network_error",
+      "Access Forbidden (403)",
+      `The server rejected the request: ${err.message.slice(0, 150)}`,
+      "Check your proxy URL in Settings. If using a proxy, make sure it allows requests to the Anthropic API.",
     );
   }
 
-  if (status === 429) {
+  if (err instanceof Anthropic.RateLimitError) {
     return new ImportError(
       "rate_limited",
       "Rate Limited",
@@ -85,7 +66,7 @@ function classifyApiError(status: number, body: string): ImportError {
     );
   }
 
-  if (errorType === "overloaded_error" || status === 529) {
+  if (err instanceof Anthropic.InternalServerError && err.status === 529) {
     return new ImportError(
       "api_error",
       "API Overloaded",
@@ -94,11 +75,29 @@ function classifyApiError(status: number, body: string): ImportError {
     );
   }
 
+  if (err instanceof Anthropic.APIConnectionError) {
+    return new ImportError(
+      "network_error",
+      "Connection Failed",
+      `Could not reach the API: ${err.message || "request was blocked or network is down."}`,
+      "Check the proxy URL in Settings, or verify your internet connection.",
+    );
+  }
+
+  if (err instanceof Anthropic.APIError) {
+    return new ImportError(
+      "api_error",
+      "API Error",
+      `Anthropic returned an error (${err.status}): ${err.message.slice(0, 150)}`,
+      "If this persists, check your proxy URL in Settings.",
+    );
+  }
+
   return new ImportError(
     "api_error",
-    "API Error",
-    `Anthropic returned an error (${status}): ${errorMsg.slice(0, 150)}`,
-    "If this persists, check your proxy URL in Settings.",
+    "Unexpected Error",
+    (err instanceof Error ? err.message : String(err)) || "Something went wrong.",
+    "Try again. If this persists, check your Settings.",
   );
 }
 
@@ -107,92 +106,47 @@ export async function callClaude(
   systemPrompt: string,
   imageContents: { type: "image"; source: { type: "base64"; media_type: "image/png"; data: string } }[],
 ): Promise<string> {
-  const url = `${config.proxyUrl.replace(/\/$/, "")}/v1/messages`;
+  // Route through local proxy by default (avoids CORS/COEP issues).
+  // Custom proxy URL overrides the default.
+  const baseURL = config.proxyUrl
+    ? config.proxyUrl.replace(/\/$/, "")
+    : `${window.location.origin}/api/anthropic`;
 
-  const body = {
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: [
-          ...imageContents,
-          { type: "text", text: "Extract all transactions from these bank statement pages. Output JSON only." },
-        ],
-      },
-    ],
-  };
+  const client = new Anthropic({
+    apiKey: config.apiKey,
+    dangerouslyAllowBrowser: true,
+    baseURL,
+  });
 
-  let lastError: ImportError | null = null;
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": config.apiKey,
-          "anthropic-version": "2023-06-01",
+  try {
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8192,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...imageContents,
+            { type: "text", text: "Extract all transactions from these bank statement pages. Output JSON only." },
+          ],
         },
-        body: JSON.stringify(body),
-      });
+      ],
+    });
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        const err = classifyApiError(response.status, text);
-
-        // Only retry rate limits
-        if (response.status === 429) {
-          const wait = Math.pow(2, attempt + 1) * 1000;
-          await new Promise((r) => setTimeout(r, wait));
-          lastError = err;
-          continue;
-        }
-
-        throw err;
-      }
-
-      const data: AnthropicResponse = await response.json();
-      const textBlock = data.content.find((b) => b.type === "text");
-      if (!textBlock?.text) {
-        throw new ImportError(
-          "parse_error",
-          "Empty Response",
-          "The AI returned an empty response.",
-          "Try again — this is usually a transient issue.",
-        );
-      }
-
-      return textBlock.text;
-    } catch (e) {
-      if (e instanceof ImportError) {
-        lastError = e;
-        // Don't retry non-retryable errors
-        if (e.code !== "rate_limited") throw e;
-        continue;
-      }
-      if (e instanceof TypeError && e.message.includes("fetch")) {
-        throw new ImportError(
-          "network_error",
-          "Connection Failed",
-          "Could not reach the API — the request was blocked or the network is down.",
-          "Check the proxy URL in Settings, or verify your internet connection.",
-        );
-      }
+    const textBlock = response.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
       throw new ImportError(
-        "api_error",
-        "Unexpected Error",
-        (e as Error).message || "Something went wrong.",
-        "Try again. If this persists, check your Settings.",
+        "parse_error",
+        "Empty Response",
+        "The AI returned an empty response.",
+        "Try again — this is usually a transient issue.",
       );
     }
-  }
 
-  throw lastError ?? new ImportError(
-    "rate_limited",
-    "Rate Limited",
-    "Still rate-limited after 3 retries.",
-    "Wait a minute, then try again.",
-  );
+    return textBlock.text;
+  } catch (e) {
+    if (e instanceof ImportError) throw e;
+    throw classifyApiError(e);
+  }
 }

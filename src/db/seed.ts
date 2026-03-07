@@ -231,7 +231,7 @@ function months(start: string, end: string): string[] {
   return result;
 }
 
-export function getCashflowSeedSQL(): string {
+export function getDummyDataSQL(): string {
   return CASHFLOW_SEED.map(
     (item) =>
       `INSERT OR IGNORE INTO transactions (id, amount, type, date, payee, status, group_name)

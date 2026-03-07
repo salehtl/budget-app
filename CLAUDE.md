@@ -95,6 +95,7 @@ The main page. Income and Expense tables with inline add/edit rows sharing a 7-c
 ## Important Config (vite.config.ts)
 
 - **COOP/COEP headers** required for OPFS: `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`
+- **Anthropic proxy plugin:** Custom middleware forwards `/api/anthropic/*` to `https://api.anthropic.com` server-side. Required because COEP blocks direct browser→Anthropic calls (CORS preflight fails). Handles OPTIONS locally, strips browser headers from POST.
 - **Worker format:** ES modules
 - **wa-sqlite** excluded from optimizeDeps (installed from `github:rhashimoto/wa-sqlite`, not npm)
 

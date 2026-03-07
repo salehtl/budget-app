@@ -4,7 +4,7 @@ import { Modal } from "./ui/Modal.tsx";
 import { Button } from "./ui/Button.tsx";
 import { emitDbEvent } from "../lib/db-events.ts";
 import { CREATE_TABLES, SCHEMA_VERSION } from "../db/schema.ts";
-import { getSeedSQL, getCashflowSeedSQL } from "../db/seed.ts";
+import { getSeedSQL, getDummyDataSQL } from "../db/seed.ts";
 
 const ALL_TABLES = [
   "transaction_tags",
@@ -76,14 +76,14 @@ export function AdminPanel() {
     await db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   }
 
-  async function handleSeedCategories() {
-    setLoading("seed-categories");
+  async function handleSeedDummyData() {
+    setLoading("seed-dummy");
     setResult(null);
     try {
-      await execStatements(db, getSeedSQL());
-      emitDbEvent("categories-changed");
+      await execStatements(db, getDummyDataSQL());
+      emitDbEvent("transactions-changed");
       await fetchTableCounts();
-      setResult("Default categories seeded successfully.");
+      setResult("Dummy transactions seeded.");
     } catch (e: any) {
       setResult(`Error: ${e.message}`);
     } finally {
@@ -91,14 +91,19 @@ export function AdminPanel() {
     }
   }
 
-  async function handleClearOnly() {
-    setLoading("clear");
+  async function handleClearData() {
+    setLoading("clear-data");
     setResult(null);
     try {
-      await dropAndRecreate();
+      // Clear transactions and related data, keep categories and settings
+      await db.exec("DELETE FROM transaction_tags;");
+      await db.exec("DELETE FROM tags;");
+      await db.exec("DELETE FROM transactions;");
+      await db.exec("DELETE FROM budgets;");
+      await db.exec("DELETE FROM recurring_transactions;");
       emitAllDbEvents();
       await fetchTableCounts();
-      setResult("Database cleared (empty tables, no seed data).");
+      setResult("All data cleared (categories & settings kept).");
     } catch (e: any) {
       setResult(`Error: ${e.message}`);
     } finally {
@@ -106,16 +111,15 @@ export function AdminPanel() {
     }
   }
 
-  async function handleClearAndReseed() {
-    setLoading("reseed");
+  async function handleFactoryReset() {
+    setLoading("factory-reset");
     setResult(null);
     try {
       await dropAndRecreate();
       await execStatements(db, getSeedSQL());
-      await execStatements(db, getCashflowSeedSQL());
       emitAllDbEvents();
       await fetchTableCounts();
-      setResult("Database cleared and re-seeded successfully.");
+      setResult("Factory reset complete (default categories only).");
     } catch (e: any) {
       setResult(`Error: ${e.message}`);
     } finally {
@@ -199,34 +203,40 @@ export function AdminPanel() {
             <div className="space-y-2">
               <Button
                 variant="secondary"
-                onClick={handleSeedCategories}
+                onClick={handleSeedDummyData}
                 disabled={loading !== null}
                 className="w-full"
               >
-                {loading === "seed-categories"
+                {loading === "seed-dummy"
                   ? "Seeding..."
-                  : "Seed Categories"}
+                  : "Seed Dummy Data"}
               </Button>
               <Button
                 variant="danger"
-                onClick={handleClearOnly}
+                onClick={handleClearData}
                 disabled={loading !== null}
                 className="w-full"
               >
-                {loading === "clear"
+                {loading === "clear-data"
                   ? "Clearing..."
-                  : "Clear DB (No Seed)"}
+                  : "Clear All Data"}
               </Button>
               <Button
                 variant="danger"
-                onClick={handleClearAndReseed}
+                onClick={handleFactoryReset}
                 disabled={loading !== null}
                 className="w-full"
               >
-                {loading === "reseed"
-                  ? "Clearing & Seeding..."
-                  : "Clear DB & Re-seed"}
+                {loading === "factory-reset"
+                  ? "Resetting..."
+                  : "Factory Reset"}
               </Button>
+            </div>
+
+            <div className="mt-2 text-[10px] text-text-light space-y-0.5">
+              <p><strong>Seed Dummy Data</strong> — adds sample transactions to existing DB</p>
+              <p><strong>Clear All Data</strong> — removes transactions, tags, budgets (keeps categories & settings)</p>
+              <p><strong>Factory Reset</strong> — drops everything, recreates with default categories only</p>
             </div>
 
             {result && (
