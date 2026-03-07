@@ -1,16 +1,24 @@
 import { Link, useLocation } from "@tanstack/react-router";
+import { useTheme } from "../../hooks/useTheme.ts";
 
 const navItems = [
   { to: "/", label: "Cashflow", icon: CashflowIcon },
+  { to: "/recurring", label: "Recurring", icon: RecurringIcon },
   { to: "/overview", label: "Overview", icon: OverviewIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
 export function Sidebar() {
+  const { isDark } = useTheme();
+  const logoSrc = isDark ? "/meta-media/logo-square-darkmode.svg" : "/meta-media/logo-square-lightmode.svg";
+
   return (
     <aside className="hidden md:flex flex-col w-56 border-r border-border bg-surface h-screen sticky top-0">
       <div className="p-4 border-b border-border">
-        <h1 className="text-lg font-bold text-primary">Budget</h1>
+        <div className="flex items-center gap-2">
+          <img src={logoSrc} alt="" className="w-7 h-7" />
+          <h1 className="text-lg font-bold text-primary">Cactus Money</h1>
+        </div>
       </div>
       <nav className="flex-1 p-2 space-y-0.5">
         {navItems.map((item) => (
@@ -97,6 +105,17 @@ function OverviewIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 3v18h18" />
       <path d="M7 16l4-8 4 5 5-9" />
+    </svg>
+  );
+}
+
+function RecurringIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.5 2v6h-6" />
+      <path d="M2.5 22v-6h6" />
+      <path d="M21.34 15.57A10 10 0 0 1 5.67 19.74l-3.17-2.74" />
+      <path d="M2.66 8.43A10 10 0 0 1 18.33 4.26l3.17 2.74" />
     </svg>
   );
 }

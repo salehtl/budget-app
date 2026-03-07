@@ -3,10 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1a1a2e" />
-    <title>Budget App</title>
-    <link rel="icon" type="image/png" href="/icons/pwa-192.png" />
-    <link rel="apple-touch-icon" href="/icons/pwa-192.png" />
+    <meta name="theme-color" content="#2D1CD1" />
+    <meta name="description" content="Personal finance tracker - track spending, plan budgets, stay sharp." />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Cactus Money" />
+    <meta property="og:description" content="Personal finance tracker - track spending, plan budgets, stay sharp." />
+    <meta property="og:image" content="/meta-media/open-graph.jpg" />
+    <meta property="og:type" content="website" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cactus Money" />
+    <meta name="twitter:description" content="Personal finance tracker - track spending, plan budgets, stay sharp." />
+    <meta name="twitter:image" content="/meta-media/twitter-card.jpg" />
+
+    <title>Cactus Money</title>
+    <script>
+      if (localStorage.getItem("theme") === "dark") document.documentElement.classList.add("dark");
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/meta-media/favicon.svg" />
+    <link rel="apple-touch-icon" href="/meta-media/apple-touch-icon.jpg" />
   </head>
   <body>
     <div id="root"></div>

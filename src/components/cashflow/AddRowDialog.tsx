@@ -3,6 +3,7 @@ import { Modal } from "../ui/Modal.tsx";
 import { Input } from "../ui/Input.tsx";
 import { Select } from "../ui/Select.tsx";
 import { Button } from "../ui/Button.tsx";
+import { DatePicker } from "../ui/Calendar.tsx";
 import { getCurrentMonth, getToday } from "../../lib/format.ts";
 import type { RecurringTransaction } from "../../types/database.ts";
 
@@ -136,12 +137,10 @@ export function AddRowDialog({ open, onClose, month, categories, onSubmit }: Add
           onChange={(e) => setAmount(e.target.value)}
         />
 
-        <Input
+        <DatePicker
           label="Date"
-          type="date"
-          required
           value={date}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={setDate}
         />
 
         <Select

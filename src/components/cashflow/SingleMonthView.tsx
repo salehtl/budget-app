@@ -3,6 +3,7 @@ import type { CashflowGroup, CashflowRow, CashflowSummary } from "../../lib/cash
 import type { Category, RecurringTransaction } from "../../types/database.ts";
 import { formatCurrency, formatDateShort, getToday } from "../../lib/format.ts";
 import { CategoryCombo } from "../ui/CategoryCombo.tsx";
+import { DatePicker } from "../ui/Calendar.tsx";
 
 const FREQUENCIES: { value: RecurringTransaction["frequency"]; label: string; short: string }[] = [
   { value: "weekly", label: "Weekly", short: "Wk" },
@@ -143,12 +144,10 @@ function SummaryCard({
       <p className={`text-lg font-bold tabular-nums mt-0.5 ${variant === "income" ? "text-success" : "text-danger"}`}>
         {formatCurrency(amount)}
       </p>
-      {hasBreakdown && (
-        <div className="mt-1.5 flex items-center gap-2 text-[10px] text-text-light">
-          <span>{formatCurrency(confirmed!)} conf.</span>
-          <span className="italic">+{formatCurrency(planned!)} plan.</span>
-        </div>
-      )}
+      <div className={`mt-1.5 flex items-center gap-2 text-[10px] text-text-light h-4 ${hasBreakdown ? "visible" : "invisible"}`}>
+        <span>{formatCurrency(confirmed ?? 0)} conf.</span>
+        <span className="italic">+{formatCurrency(planned ?? 0)} plan.</span>
+      </div>
     </div>
   );
 }
@@ -449,13 +448,13 @@ function ItemRow({
           </div>
 
           {/* Date */}
-          <input
-            type="date"
-            value={editDate}
-            onChange={(e) => setEditDate(e.target.value)}
-            onKeyDown={handleEditKeyDown}
-            className={`hidden sm:block text-[11px] text-text-muted text-center py-0.5 cursor-pointer ${inputBase} ${inputUnderline} [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute`}
-          />
+          <div className="hidden sm:block">
+            <DatePicker
+              value={editDate}
+              onChange={setEditDate}
+              variant="inline"
+            />
+          </div>
 
           {/* Category */}
           <div className="hidden sm:block">
@@ -797,14 +796,14 @@ function InlineAddRow({
         </div>
 
         {/* Date */}
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => handleDateChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className={`hidden sm:block text-[11px] text-text-muted text-center py-0.5 cursor-pointer ${inputBase} ${inputUnderlineIdle} [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute`}
-          disabled={saving}
-        />
+        <div className="hidden sm:block">
+          <DatePicker
+            value={date}
+            onChange={handleDateChange}
+            variant="inline"
+            disabled={saving}
+          />
+        </div>
 
         {/* Category */}
         <div className="hidden sm:block">

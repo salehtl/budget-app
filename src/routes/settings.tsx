@@ -17,6 +17,7 @@ import {
 } from "../lib/fs-sync.ts";
 import { getSetting, setSetting } from "../db/queries/settings.ts";
 import { emitDbEvent } from "../lib/db-events.ts";
+import { useTheme } from "../hooks/useTheme.ts";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -126,6 +127,9 @@ function SettingsPage() {
     <div>
       <PageHeader title="Settings" />
 
+      {/* Appearance */}
+      <AppearanceSection />
+
       {/* AI Integration section */}
       <AIIntegrationSection />
 
@@ -202,7 +206,7 @@ function SettingsPage() {
       <section className="bg-surface rounded-xl border border-border p-4">
         <h2 className="text-sm font-bold mb-3">About</h2>
         <div className="space-y-1.5 text-xs text-text-muted">
-          <p>Budget App v2.0.0</p>
+          <p>Cactus Money v2.0.0</p>
           <p>Storage: {db.storageType.toUpperCase()}</p>
           <p>Currency: AED (UAE Dirham)</p>
           <p>All data stored locally on this device.</p>
@@ -222,6 +226,37 @@ function SettingsPage() {
         variant="danger"
       />
     </div>
+  );
+}
+
+// --- Appearance section ---
+
+function AppearanceSection() {
+  const { theme, toggle } = useTheme();
+
+  return (
+    <section className="bg-surface rounded-xl border border-border p-4 mb-4">
+      <h2 className="text-sm font-bold mb-3">Appearance</h2>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">Dark mode</p>
+          <p className="text-xs text-text-muted">Switch between light and dark themes</p>
+        </div>
+        <button
+          type="button"
+          onClick={toggle}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+            theme === "dark" ? "bg-accent" : "bg-border-dark"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+              theme === "dark" ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
+    </section>
   );
 }
 

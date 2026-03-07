@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Modal } from "../ui/Modal.tsx";
 import { Button } from "../ui/Button.tsx";
+import { DatePicker } from "../ui/Calendar.tsx";
 import { CategoryCombo } from "../ui/CategoryCombo.tsx";
 import { useToast } from "../ui/Toast.tsx";
 import { useDb } from "../../context/DbContext.tsx";
@@ -916,11 +917,10 @@ function ReviewRow({
         />
       </td>
       <td className="p-2">
-        <input
-          type="date"
+        <DatePicker
           value={row.date}
-          onChange={(e) => onUpdate(index, { date: e.target.value })}
-          className="bg-transparent border-b border-transparent hover:border-border focus:border-accent outline-none text-xs w-28"
+          onChange={(date) => onUpdate(index, { date })}
+          variant="inline"
           disabled={disabled}
         />
       </td>

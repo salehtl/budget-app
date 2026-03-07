@@ -9,8 +9,9 @@ interface CategoryComboProps {
   value: string;
   onChange: (id: string) => void;
   categories: Category[];
-  variant: "edit" | "add";
+  variant: "edit" | "add" | "form";
   disabled?: boolean;
+  placeholder?: string;
   onCreateCategory?: (name: string) => Promise<string>;
 }
 
@@ -20,6 +21,7 @@ export function CategoryCombo({
   categories,
   variant,
   disabled,
+  placeholder = "Category",
   onCreateCategory,
 }: CategoryComboProps) {
   const [open, setOpen] = useState(false);
@@ -31,8 +33,10 @@ export function CategoryCombo({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
-  const selectedName = categories.find((c) => c.id === value)?.name ?? "";
+  const selected = categories.find((c) => c.id === value);
+  const selectedName = selected?.name ?? "";
   const isEdit = variant === "edit";
+  const isForm = variant === "form";
 
   const filtered = query.trim()
     ? categories.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
@@ -165,32 +169,72 @@ export function CategoryCombo({
 
   // --- Closed state: trigger button ---
   if (!open) {
+    const triggerKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        openCombo();
+      }
+    };
+
+    if (isForm) {
+      return (
+        <button
+          type="button"
+          tabIndex={0}
+          onClick={openCombo}
+          onKeyDown={triggerKeyDown}
+          disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={false}
+          className="w-full flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm
+            outline-none transition-colors cursor-pointer
+            hover:border-border-dark focus:border-accent focus:ring-1 focus:ring-accent
+            disabled:opacity-50 disabled:pointer-events-none"
+        >
+          {selected ? (
+            <>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: selected.color }} />
+              <span className="text-text">{selectedName}</span>
+            </>
+          ) : (
+            <span className="text-text-light">{placeholder}</span>
+          )}
+          <svg className="w-3.5 h-3.5 ml-auto text-text-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      );
+    }
+
     return (
       <button
         type="button"
         tabIndex={0}
         onClick={openCombo}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
-            e.preventDefault();
-            e.stopPropagation();
-            openCombo();
-          }
-        }}
+        onKeyDown={triggerKeyDown}
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={false}
-        className={`w-full text-[11px] text-center truncate py-0.5 cursor-pointer ${inputBase} border-b ${
+        className={`w-full text-[11px] text-center py-0.5 cursor-pointer ${inputBase} border-b ${
           isEdit ? "border-accent/30 text-text-muted" : "border-transparent text-text-muted"
         } hover:border-accent/50 focus:border-accent/50 focus:outline-none`}
       >
-        {selectedName || (isEdit ? "None" : "Cat...")}
+        {selectedName || placeholder}
       </button>
     );
   }
 
   // --- Open state: input + listbox ---
   const activeOptionId = activeIndex >= 0 ? getOptionId(activeIndex) : undefined;
+
+  const inputClass = isForm
+    ? "w-full rounded-lg border border-accent bg-surface px-3 py-2 text-sm outline-none ring-1 ring-accent placeholder:text-text-light"
+    : `w-full text-[11px] text-text-muted text-center py-0.5 ${inputBase} ${isEdit ? inputUnderline : inputUnderlineIdle} placeholder:text-text-light/50`;
+
+  const dropdownClass = isForm
+    ? "absolute left-0 top-full mt-1 z-[60] w-full min-w-[12rem] max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg py-1 animate-slide-up"
+    : "absolute left-1/2 -translate-x-1/2 top-full mt-1 z-[60] w-48 max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg py-1 animate-slide-up";
 
   return (
     <div ref={ref} className="relative">
@@ -205,15 +249,15 @@ export function CategoryCombo({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleInputKeyDown}
-        placeholder={selectedName || "Search..."}
-        className={`w-full text-[11px] text-text-muted text-center py-0.5 ${inputBase} ${isEdit ? inputUnderline : inputUnderlineIdle} placeholder:text-text-light/50`}
+        placeholder={selectedName || placeholder}
+        className={inputClass}
       />
       <ul
         ref={listRef}
         id={listboxId}
         role="listbox"
         aria-label="Categories"
-        className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-[60] w-48 max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg py-1 animate-slide-up"
+        className={dropdownClass}
       >
         {options.map((opt, i) => {
           const isActive = i === activeIndex;
