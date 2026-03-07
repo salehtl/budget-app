@@ -12,17 +12,17 @@ import { bulkInsertTransactions, getExistingFingerprints, txnFingerprint } from 
 import { ImportError } from "../../lib/pdf-import/anthropic-client.ts";
 import { formatCurrency } from "../../lib/format.ts";
 import type { Category } from "../../types/database.ts";
-import type { ParsedTransaction, ImportState } from "../../lib/pdf-import/types.ts";
+import type { ParsedTransaction, ImportState, FileProgress } from "../../lib/pdf-import/types.ts";
 import type { ParseProgress } from "../../lib/pdf-import/parse-statement.ts";
 
 interface PdfImportModalProps {
   open: boolean;
   onClose: () => void;
-  file: File;
+  files: File[];
   categories: Category[];
 }
 
-export function PdfImportModal({ open, onClose, file, categories }: PdfImportModalProps) {
+export function PdfImportModal({ open, onClose, files, categories }: PdfImportModalProps) {
   const db = useDb();
   const { toast } = useToast();
   const [state, setState] = useState<ImportState>({ step: "idle" });
@@ -97,49 +97,63 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
         const proxyUrl =
           (await getSetting(db, "anthropic_proxy_url")) || "";
 
-        setState({
-          step: "processing",
-          progress: { message: "Starting...", phase: "rendering", fileName: file.name },
-        });
+        const allTransactions: ParsedTransaction[] = [];
 
-        const transactions = await parseStatement(
-          file,
-          categories,
-          { apiKey, proxyUrl },
-          (progress) => {
-            if (!isCurrent()) return;
-            setState((prev) => {
-              if (prev.step === "streaming") {
-                return { ...prev, progress };
-              }
-              return { step: "processing", progress };
-            });
-          },
-          (txn) => {
-            if (!isCurrent()) return;
-            txnQueueRef.current.push(txn);
-            startDraining();
-          },
-        );
+        for (let fi = 0; fi < files.length; fi++) {
+          if (!isCurrent()) return;
+          const file = files[fi]!;
+          const fileProgress: FileProgress | undefined =
+            files.length > 1 ? { fileIndex: fi, totalFiles: files.length } : undefined;
 
-        // Flush any remaining queued transactions
-        flushQueue();
+          setState({
+            step: "processing",
+            progress: { message: "Starting...", phase: "rendering", fileName: file.name },
+            fileProgress,
+          });
 
-        if (isCurrent() && transactions.length > 0) {
+          const transactions = await parseStatement(
+            file,
+            categories,
+            { apiKey, proxyUrl },
+            (progress) => {
+              if (!isCurrent()) return;
+              setState((prev) => {
+                if (prev.step === "streaming") {
+                  return { ...prev, progress, fileProgress };
+                }
+                return { step: "processing", progress, fileProgress };
+              });
+            },
+            (txn) => {
+              if (!isCurrent()) return;
+              txnQueueRef.current.push(txn);
+              startDraining();
+            },
+          );
+
+          // Flush any remaining queued transactions from this file
+          flushQueue();
+
+          allTransactions.push(...transactions);
+        }
+
+        if (!isCurrent()) return;
+
+        if (allTransactions.length > 0) {
           // Mark duplicates against existing DB transactions
-          const dates = transactions.map((t) => t.date).filter(Boolean);
+          const dates = allTransactions.map((t) => t.date).filter(Boolean);
           const minDate = dates.reduce((a, b) => (a < b ? a : b));
           const maxDate = dates.reduce((a, b) => (a > b ? a : b));
           const existing = await getExistingFingerprints(db, minDate, maxDate);
 
-          const marked = transactions.map((t) => {
+          const marked = allTransactions.map((t) => {
             const isDup = existing.has(txnFingerprint(t.date, t.amount, t.payee));
             return isDup ? { ...t, duplicate: true, selected: false } : t;
           });
 
           setState({ step: "reviewing", transactions: marked });
-        } else if (isCurrent()) {
-          setState({ step: "reviewing", transactions });
+        } else {
+          setState({ step: "reviewing", transactions: allTransactions });
         }
       } catch (e) {
         if (!isCurrent()) return;
@@ -164,25 +178,26 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
     }
 
     run();
-  }, [open, state.step, db, file, categories]);
+  }, [open, state.step, db, files, categories]);
 
   function handleClose() {
     setState({ step: "idle" });
     onClose();
   }
 
+  const multiLabel = files.length > 1 ? "Statements" : "Statement";
   const title =
     state.step === "processing"
-      ? "Importing Statement"
+      ? `Importing ${multiLabel}`
       : state.step === "streaming"
-        ? "Analyzing Statement"
+        ? `Analyzing ${multiLabel}`
         : state.step === "reviewing" || state.step === "importing"
           ? "Review Transactions"
           : state.step === "done"
             ? "Import Complete"
             : state.step === "error"
               ? state.title
-              : "Import PDF";
+              : "Import Statement(s)";
 
   const isWide = state.step === "reviewing" || state.step === "importing" || state.step === "streaming";
 
@@ -194,14 +209,14 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
       size={isWide ? "wide" : "default"}
     >
       {state.step === "processing" && (
-        <ProcessingView progress={state.progress} />
+        <ProcessingView progress={state.progress} fileProgress={state.fileProgress} />
       )}
       {state.step === "streaming" && (
         <StreamingView
           transactions={state.transactions}
           progress={state.progress}
           categories={categories}
-          fileName={file.name}
+          fileProgress={state.fileProgress}
         />
       )}
       {(state.step === "reviewing" || state.step === "importing") && (
@@ -220,7 +235,7 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
             }
           }}
           onCancel={handleClose}
-          fileName={file.name}
+          fileNames={files.map((f) => f.name)}
         />
       )}
       {state.step === "done" && (
@@ -273,11 +288,20 @@ const PHASE_META: Record<ParseProgress["phase"], { label: string; icon: JSX.Elem
 
 const PHASES: ParseProgress["phase"][] = ["rendering", "analyzing", "done"];
 
-function ProcessingView({ progress }: { progress: ParseProgress }) {
+function ProcessingView({ progress, fileProgress }: { progress: ParseProgress; fileProgress?: FileProgress }) {
   const currentIdx = PHASES.indexOf(progress.phase);
 
   return (
     <div className="py-6">
+      {/* File progress */}
+      {fileProgress && (
+        <div className="flex items-center justify-center gap-2 mb-4 text-xs text-text-muted">
+          <span className="font-medium text-text">File {fileProgress.fileIndex + 1} of {fileProgress.totalFiles}</span>
+          <span className="text-border">·</span>
+          <span className="truncate max-w-[200px]">{progress.fileName}</span>
+        </div>
+      )}
+
       {/* Phase steps */}
       <div className="flex items-center justify-center gap-0 mb-8">
         {PHASES.map((phase, i) => {
@@ -409,12 +433,12 @@ function StreamingView({
   transactions,
   progress,
   categories,
-  fileName,
+  fileProgress,
 }: {
   transactions: ParsedTransaction[];
   progress: ParseProgress;
   categories: Category[];
-  fileName: string;
+  fileProgress?: FileProgress;
 }) {
   const prevCountRef = useRef(0);
   const newStartIndex = prevCountRef.current;
@@ -438,8 +462,14 @@ function StreamingView({
             </span>
             <span className="font-bold text-text tabular-nums">{transactions.length} found</span>
           </span>
+          {fileProgress && (
+            <>
+              <span className="text-border">·</span>
+              <span>File {fileProgress.fileIndex + 1} of {fileProgress.totalFiles}</span>
+            </>
+          )}
           <span className="text-border">·</span>
-          <span className="truncate max-w-[180px]">{fileName}</span>
+          <span className="truncate max-w-[180px]">{progress.fileName}</span>
         </div>
         <div className="flex items-center gap-2 text-[11px] tabular-nums">
           {income > 0 && <span className="text-success font-medium">+{formatCurrency(income)}</span>}
@@ -725,14 +755,14 @@ function ReviewView({
   importing,
   onImport,
   onCancel,
-  fileName,
+  fileNames,
 }: {
   transactions: ParsedTransaction[];
   categories: Category[];
   importing: boolean;
   onImport: (txns: ParsedTransaction[]) => void;
   onCancel: () => void;
-  fileName: string;
+  fileNames: string[];
 }) {
   const [rows, setRows] = useState<ParsedTransaction[]>(initial);
 
@@ -773,7 +803,9 @@ function ReviewView({
         <div className="flex items-center gap-2.5 text-xs text-text-muted">
           <span className="font-bold text-text">{rows.length} transactions</span>
           <span className="text-border">·</span>
-          <span className="truncate max-w-[180px]">{fileName}</span>
+          <span className="truncate max-w-[180px]">
+            {fileNames.length === 1 ? fileNames[0] : `${fileNames.length} files`}
+          </span>
         </div>
         <div className="flex items-center gap-1.5">
           {duplicateCount > 0 && (

@@ -27,7 +27,7 @@ function CashflowPage() {
   const [groupBy, setGroupBy] = useState<GroupBy>("category");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfFiles, setPdfFiles] = useState<File[] | null>(null);
 
   // Load persisted groupBy on mount
   useEffect(() => {
@@ -64,7 +64,7 @@ function CashflowPage() {
         onGroupByChange={handleGroupByChange}
         onAddRow={() => setShowAddDialog(true)}
       >
-        <PdfImportButton onFileSelect={setPdfFile} />
+        <PdfImportButton onFilesSelect={setPdfFiles} />
       </CashflowToolbar>
 
       {loading ? (
@@ -163,11 +163,11 @@ function CashflowPage() {
         variant="danger"
       />
 
-      {pdfFile && (
+      {pdfFiles && (
         <PdfImportModal
-          open={!!pdfFile}
-          onClose={() => setPdfFile(null)}
-          file={pdfFile}
+          open={!!pdfFiles}
+          onClose={() => setPdfFiles(null)}
+          files={pdfFiles}
           categories={categories}
         />
       )}

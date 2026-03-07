@@ -2,10 +2,10 @@ import { useRef } from "react";
 import { Button } from "../ui/Button.tsx";
 
 interface PdfImportButtonProps {
-  onFileSelect: (file: File) => void;
+  onFilesSelect: (files: File[]) => void;
 }
 
-export function PdfImportButton({ onFileSelect }: PdfImportButtonProps) {
+export function PdfImportButton({ onFilesSelect }: PdfImportButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -30,17 +30,18 @@ export function PdfImportButton({ onFileSelect }: PdfImportButtonProps) {
           <line x1="9" y1="15" x2="12" y2="12" />
           <line x1="15" y1="15" x2="12" y2="12" />
         </svg>
-        Import PDF
+        Import Statement{"\u200A"}(s)
       </Button>
       <input
         ref={inputRef}
         type="file"
         accept=".pdf"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) {
-            onFileSelect(file);
+          const files = e.target.files;
+          if (files && files.length > 0) {
+            onFilesSelect(Array.from(files));
             e.target.value = "";
           }
         }}
