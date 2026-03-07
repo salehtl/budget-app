@@ -65,7 +65,7 @@ function anthropicProxyPlugin(): PluginOption {
               "Access-Control-Allow-Origin": "*",
               "Cross-Origin-Resource-Policy": "cross-origin",
             });
-            res.end(JSON.stringify({ error: { type: "proxy_error", message: e.message } }));
+            res.end(JSON.stringify({ error: { type: "proxy_error", message: "Failed to connect to upstream API." } }));
           }
         });
       });

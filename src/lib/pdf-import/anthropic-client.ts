@@ -51,8 +51,8 @@ function classifyApiError(err: unknown): ImportError {
     }
     return new ImportError(
       "network_error",
-      "Access Forbidden (403)",
-      `The server rejected the request: ${err.message.slice(0, 150)}`,
+      "Access Forbidden",
+      "The server rejected the request. Your account may not have permission for this action.",
       "Check your proxy URL in Settings. If using a proxy, make sure it allows requests to the Anthropic API.",
     );
   }
@@ -79,7 +79,7 @@ function classifyApiError(err: unknown): ImportError {
     return new ImportError(
       "network_error",
       "Connection Failed",
-      `Could not reach the API: ${err.message || "request was blocked or network is down."}`,
+      "Could not reach the API. The request may have been blocked or the network is down.",
       "Check the proxy URL in Settings, or verify your internet connection.",
     );
   }
@@ -88,7 +88,7 @@ function classifyApiError(err: unknown): ImportError {
     return new ImportError(
       "api_error",
       "API Error",
-      `Anthropic returned an error (${err.status}): ${err.message.slice(0, 150)}`,
+      "Something went wrong while contacting the API.",
       "If this persists, check your proxy URL in Settings.",
     );
   }
@@ -96,7 +96,7 @@ function classifyApiError(err: unknown): ImportError {
   return new ImportError(
     "api_error",
     "Unexpected Error",
-    (err instanceof Error ? err.message : String(err)) || "Something went wrong.",
+    "Something went wrong.",
     "Try again. If this persists, check your Settings.",
   );
 }
