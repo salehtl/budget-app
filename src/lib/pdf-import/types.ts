@@ -28,6 +28,6 @@ export type ImportState =
   | { step: "processing"; progress: ParseProgress; files: ImportFile[] }
   | { step: "streaming"; transactions: ParsedTransaction[]; progress: ParseProgress; files: ImportFile[] }
   | { step: "reviewing"; transactions: ParsedTransaction[]; files: ImportFile[] }
-  | { step: "importing"; transactions: ParsedTransaction[] }
+  | { step: "importing"; transactions: ParsedTransaction[]; files: ImportFile[] }
   | { step: "done"; count: number; fileCount: number }
   | { step: "error"; code: ImportErrorCode; title: string; message: string; suggestion: string };

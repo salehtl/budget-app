@@ -306,7 +306,7 @@ export function PdfImportModal({ open, onClose, files, categories }: PdfImportMo
           files={state.files}
           singleFile={isSingleFile}
           onImport={async (txns) => {
-            setState({ step: "importing", transactions: txns });
+            setState({ step: "importing", transactions: txns, files: filesRef.current });
             try {
               const count = await bulkInsertTransactions(db, txns);
               const doneFileCount = filesRef.current.filter((f) => f.status === "done").length;
