@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Modal } from "../ui/Modal.tsx";
 import { Button } from "../ui/Button.tsx";
@@ -8,27 +8,33 @@ import { useToast } from "../ui/Toast.tsx";
 import { useDb } from "../../context/DbContext.tsx";
 import { getSetting } from "../../db/queries/settings.ts";
 import { parseStatement } from "../../lib/pdf-import/parse-statement.ts";
+import { getPageCount } from "../../lib/pdf-import/pdf-to-images.ts";
 import { bulkInsertTransactions, getExistingFingerprints, txnFingerprint } from "../../lib/pdf-import/bulk-insert.ts";
 import { ImportError } from "../../lib/pdf-import/anthropic-client.ts";
 import { formatCurrency } from "../../lib/format.ts";
 import type { Category } from "../../types/database.ts";
-import type { ParsedTransaction, ImportState } from "../../lib/pdf-import/types.ts";
+import type { ParsedTransaction, ImportState, ImportFile } from "../../lib/pdf-import/types.ts";
 import type { ParseProgress } from "../../lib/pdf-import/parse-statement.ts";
+
+const MAX_TOTAL_PAGES = 50;
 
 interface PdfImportModalProps {
   open: boolean;
   onClose: () => void;
-  file: File;
+  files: File[];
   categories: Category[];
 }
 
-export function PdfImportModal({ open, onClose, file, categories }: PdfImportModalProps) {
+export function PdfImportModal({ open, onClose, files, categories }: PdfImportModalProps) {
   const db = useDb();
   const { toast } = useToast();
   const [state, setState] = useState<ImportState>({ step: "idle" });
   const runIdRef = useRef(0);
   const txnQueueRef = useRef<ParsedTransaction[]>([]);
   const drainTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const filesRef = useRef<ImportFile[]>([]);
+
+  const isSingleFile = files.length === 1;
 
   // Drip queue: reveals buffered transactions one at a time
   function startDraining() {
@@ -41,7 +47,7 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
           return { ...prev, transactions: [...prev.transactions, next] };
         }
         if (prev.step === "processing") {
-          return { step: "streaming", transactions: [next], progress: prev.progress };
+          return { step: "streaming", transactions: [next], progress: prev.progress, files: prev.files };
         }
         return prev;
       });
@@ -55,7 +61,6 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
     }
   }
 
-  // Flush remaining queue items instantly (when analysis completes)
   function flushQueue() {
     stopDraining();
     const remaining = txnQueueRef.current.splice(0);
@@ -69,122 +74,193 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
     }
   }
 
-  // Cleanup timer on unmount
   useEffect(() => () => stopDraining(), []);
 
+  // For single file: skip file-queue, go straight to processing
   useEffect(() => {
     if (!open || state.step !== "idle") return;
+    if (isSingleFile) {
+      const importFiles: ImportFile[] = [{ file: files[0], status: "pending", transactionCount: 0 }];
+      startProcessing(importFiles);
+    } else {
+      // Multi-file: enter file-queue step to count pages
+      const importFiles: ImportFile[] = files.map((f) => ({ file: f, status: "pending", transactionCount: 0 }));
+      setState({ step: "file-queue", files: importFiles });
+      countPages(importFiles);
+    }
+  }, [open, state.step]);
 
+  async function countPages(importFiles: ImportFile[]) {
+    const counts = await Promise.all(
+      importFiles.map((f) => getPageCount(f.file).catch(() => 0)),
+    );
+    const updated = importFiles.map((f, i) => ({ ...f, pageCount: counts[i] }));
+    setState((prev) => (prev.step === "file-queue" ? { ...prev, files: updated } : prev));
+  }
+
+  async function startProcessing(importFiles: ImportFile[]) {
     const runId = ++runIdRef.current;
     const isCurrent = () => runId === runIdRef.current;
     txnQueueRef.current = [];
 
-    async function run() {
-      try {
-        const apiKey = await getSetting(db, "anthropic_api_key");
-        if (!isCurrent()) return;
-        if (!apiKey) {
-          setState({
-            step: "error",
-            code: "no_api_key",
-            title: "API Key Required",
-            message: "You need an Anthropic API key to import PDFs.",
-            suggestion: "Add your API key in Settings under AI Integration.",
-          });
-          return;
-        }
-
-        const proxyUrl =
-          (await getSetting(db, "anthropic_proxy_url")) || "";
-        const model =
-          (await getSetting(db, "anthropic_model")) || "";
-
+    try {
+      const apiKey = await getSetting(db, "anthropic_api_key");
+      if (!isCurrent()) return;
+      if (!apiKey) {
         setState({
-          step: "processing",
-          progress: { message: "Starting...", phase: "rendering", fileName: file.name },
+          step: "error",
+          code: "no_api_key",
+          title: "API Key Required",
+          message: "You need an Anthropic API key to import PDFs.",
+          suggestion: "Add your API key in Settings under AI Integration.",
         });
+        return;
+      }
 
-        const transactions = await parseStatement(
-          file,
-          categories,
-          { apiKey, proxyUrl, model },
-          (progress) => {
-            if (!isCurrent()) return;
-            setState((prev) => {
-              if (prev.step === "streaming") {
-                return { ...prev, progress };
-              }
-              return { step: "processing", progress };
-            });
-          },
-          (txn) => {
-            if (!isCurrent()) return;
-            txnQueueRef.current.push(txn);
-            startDraining();
-          },
-        );
+      const proxyUrl = (await getSetting(db, "anthropic_proxy_url")) || "";
+      const model = (await getSetting(db, "anthropic_model")) || "";
 
-        // Flush any remaining queued transactions
-        flushQueue();
+      const updatedFiles = importFiles.map((f) => ({ ...f }));
+      filesRef.current = updatedFiles;
+      const allTransactions: ParsedTransaction[] = [];
 
-        if (isCurrent() && transactions.length > 0) {
-          // Mark duplicates against existing DB transactions
-          const dates = transactions.map((t) => t.date).filter(Boolean);
-          const minDate = dates.reduce((a, b) => (a < b ? a : b));
-          const maxDate = dates.reduce((a, b) => (a > b ? a : b));
-          const existing = await getExistingFingerprints(db, minDate, maxDate);
+      function syncFiles() {
+        setState((prev) => {
+          if (prev.step === "processing" || prev.step === "streaming") {
+            return { ...prev, files: [...updatedFiles] };
+          }
+          return prev;
+        });
+      }
 
-          const marked = transactions.map((t) => {
-            const isDup = existing.has(txnFingerprint(t.date, t.amount, t.payee));
-            return isDup ? { ...t, duplicate: true, selected: false } : t;
-          });
+      setState({
+        step: "processing",
+        progress: { message: "Starting...", phase: "rendering", fileName: updatedFiles[0].file.name },
+        files: updatedFiles,
+      });
 
-          setState({ step: "reviewing", transactions: marked });
-        } else if (isCurrent()) {
-          setState({ step: "reviewing", transactions });
-        }
-      } catch (e) {
+      // Process files sequentially
+      for (let fi = 0; fi < updatedFiles.length; fi++) {
         if (!isCurrent()) return;
-        if (e instanceof ImportError) {
-          setState({
-            step: "error",
-            code: e.code,
-            title: e.title,
-            message: e.message,
-            suggestion: e.suggestion,
-          });
-        } else {
-          setState({
-            step: "error",
-            code: "api_error",
-            title: "Unexpected Error",
-            message: (e as Error).message || "Something went wrong.",
-            suggestion: "Try again. If this persists, check your Settings.",
-          });
+
+        const importFile = updatedFiles[fi];
+        updatedFiles[fi] = { ...importFile, status: "processing" };
+        syncFiles();
+
+        try {
+          const transactions = await parseStatement(
+            importFile.file,
+            categories,
+            { apiKey, proxyUrl, model },
+            (progress) => {
+              if (!isCurrent()) return;
+              setState((prev) => {
+                if (prev.step === "streaming" || prev.step === "processing") return { ...prev, progress };
+                return prev;
+              });
+            },
+            (txn) => {
+              if (!isCurrent()) return;
+              txn.sourceFile = importFile.file.name;
+              txnQueueRef.current.push(txn);
+              startDraining();
+            },
+          );
+
+          flushQueue();
+
+          updatedFiles[fi] = { ...updatedFiles[fi], status: "done", transactionCount: transactions.length };
+          allTransactions.push(...transactions);
+          syncFiles();
+        } catch (e) {
+          flushQueue();
+
+          if (e instanceof ImportError && (e.code === "no_api_key" || e.code === "invalid_api_key" || e.code === "credits_exhausted")) {
+            // Fatal errors — stop everything
+            if (!isCurrent()) return;
+            setState({
+              step: "error",
+              code: e.code,
+              title: e.title,
+              message: e.message,
+              suggestion: e.suggestion,
+            });
+            return;
+          }
+
+          // Non-fatal: mark file as errored, continue with others
+          const errorMsg = e instanceof ImportError ? e.message : (e as Error).message || "Failed to process";
+          updatedFiles[fi] = { ...updatedFiles[fi], status: "error", error: errorMsg };
+          syncFiles();
         }
       }
-    }
 
-    run();
-  }, [open, state.step, db, file, categories]);
+      if (!isCurrent()) return;
+
+      if (allTransactions.length > 0) {
+        // Mark duplicates against existing DB transactions
+        const dates = allTransactions.map((t) => t.date).filter(Boolean);
+        const minDate = dates.reduce((a, b) => (a < b ? a : b));
+        const maxDate = dates.reduce((a, b) => (a > b ? a : b));
+        const existing = await getExistingFingerprints(db, minDate, maxDate);
+
+        const marked = allTransactions.map((t) => {
+          const isDup = existing.has(txnFingerprint(t.date, t.amount, t.payee));
+          return isDup ? { ...t, duplicate: true, selected: false } : t;
+        });
+
+        setState({ step: "reviewing", transactions: marked, files: updatedFiles });
+      } else {
+        // All files failed or no transactions found
+        const failedFiles = updatedFiles.filter((f) => f.status === "error");
+        if (failedFiles.length === updatedFiles.length) {
+          setState({
+            step: "error",
+            code: "no_transactions",
+            title: "No Transactions Found",
+            message: "Could not extract transactions from any of the uploaded files.",
+            suggestion: "Make sure the files are bank or credit card statements.",
+          });
+        } else {
+          setState({ step: "reviewing", transactions: [], files: updatedFiles });
+        }
+      }
+    } catch (e) {
+      if (!isCurrent()) return;
+      if (e instanceof ImportError) {
+        setState({ step: "error", code: e.code, title: e.title, message: e.message, suggestion: e.suggestion });
+      } else {
+        setState({
+          step: "error",
+          code: "api_error",
+          title: "Unexpected Error",
+          message: (e as Error).message || "Something went wrong.",
+          suggestion: "Try again. If this persists, check your Settings.",
+        });
+      }
+    }
+  }
 
   function handleClose() {
     setState({ step: "idle" });
     onClose();
   }
 
+  const fileCount = files.length;
   const title =
-    state.step === "processing"
-      ? "Importing Statement"
-      : state.step === "streaming"
-        ? "Analyzing Statement"
-        : state.step === "reviewing" || state.step === "importing"
-          ? "Review Transactions"
-          : state.step === "done"
-            ? "Import Complete"
-            : state.step === "error"
-              ? state.title
-              : "Import PDF";
+    state.step === "file-queue"
+      ? `Import ${fileCount} Statement${fileCount !== 1 ? "s" : ""}`
+      : state.step === "processing"
+        ? "Importing Statement" + (fileCount > 1 ? "s" : "")
+        : state.step === "streaming"
+          ? "Analyzing Statement" + (fileCount > 1 ? "s" : "")
+          : state.step === "reviewing" || state.step === "importing"
+            ? "Review Transactions"
+            : state.step === "done"
+              ? "Import Complete"
+              : state.step === "error"
+                ? state.title
+                : "Import Statement(s)";
 
   const isWide = state.step === "reviewing" || state.step === "importing" || state.step === "streaming";
 
@@ -195,15 +271,31 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
       title={title}
       size={isWide ? "wide" : "default"}
     >
+      {state.step === "file-queue" && (
+        <FileQueueView
+          files={state.files}
+          onStart={() => startProcessing(state.files)}
+          onRemoveFile={(idx) => {
+            const next = state.files.filter((_, i) => i !== idx);
+            if (next.length === 0) {
+              handleClose();
+            } else {
+              setState({ step: "file-queue", files: next });
+            }
+          }}
+          onCancel={handleClose}
+        />
+      )}
       {state.step === "processing" && (
-        <ProcessingView progress={state.progress} />
+        <ProcessingView progress={state.progress} files={state.files} singleFile={isSingleFile} />
       )}
       {state.step === "streaming" && (
         <StreamingView
           transactions={state.transactions}
           progress={state.progress}
           categories={categories}
-          fileName={file.name}
+          files={state.files}
+          singleFile={isSingleFile}
         />
       )}
       {(state.step === "reviewing" || state.step === "importing") && (
@@ -211,22 +303,24 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
           transactions={state.transactions}
           categories={categories}
           importing={state.step === "importing"}
+          files={state.files}
+          singleFile={isSingleFile}
           onImport={async (txns) => {
             setState({ step: "importing", transactions: txns });
             try {
               const count = await bulkInsertTransactions(db, txns);
-              setState({ step: "done", count });
+              const doneFileCount = filesRef.current.filter((f) => f.status === "done").length;
+              setState({ step: "done", count, fileCount: doneFileCount || fileCount });
             } catch (e: any) {
               toast(`Import failed: ${e.message}`, "error");
-              setState({ step: "reviewing", transactions: txns });
+              setState({ step: "reviewing", transactions: txns, files: filesRef.current });
             }
           }}
           onCancel={handleClose}
-          fileName={file.name}
         />
       )}
       {state.step === "done" && (
-        <DoneView count={state.count} onClose={handleClose} />
+        <DoneView count={state.count} fileCount={state.fileCount} onClose={handleClose} />
       )}
       {state.step === "error" && (
         <ErrorView
@@ -239,6 +333,134 @@ export function PdfImportModal({ open, onClose, file, categories }: PdfImportMod
         />
       )}
     </Modal>
+  );
+}
+
+// --- File Queue (multi-file only) ---
+
+function FileQueueView({
+  files,
+  onStart,
+  onRemoveFile,
+  onCancel,
+}: {
+  files: ImportFile[];
+  onStart: () => void;
+  onRemoveFile: (index: number) => void;
+  onCancel: () => void;
+}) {
+  const totalPages = files.reduce((sum, f) => sum + (f.pageCount ?? 0), 0);
+  const allCounted = files.every((f) => f.pageCount != null);
+  const tooManyPages = totalPages > MAX_TOTAL_PAGES;
+
+  return (
+    <div className="py-2 animate-slide-up">
+      <div className="space-y-1.5 mb-4">
+        {files.map((f, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 px-3 py-2.5 bg-surface-alt rounded-lg group"
+          >
+            <svg className="w-4 h-4 text-text-light shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <span className="text-xs truncate flex-1 min-w-0">{f.file.name}</span>
+            {f.pageCount != null ? (
+              <span className="text-[11px] text-text-muted tabular-nums shrink-0">
+                {f.pageCount} pg{f.pageCount !== 1 ? "s" : ""}
+              </span>
+            ) : (
+              <span className="w-3 h-3 border-2 border-border border-t-accent rounded-full animate-spin shrink-0" />
+            )}
+            <button
+              type="button"
+              onClick={() => onRemoveFile(i)}
+              className="text-text-light hover:text-danger transition-colors cursor-pointer p-0.5 rounded hover:bg-danger/5 opacity-0 group-hover:opacity-100"
+              title="Remove"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Summary */}
+      <div className="flex items-center justify-between text-xs text-text-muted mb-4">
+        <span>
+          {files.length} file{files.length !== 1 ? "s" : ""}
+          {allCounted && <> · {totalPages} page{totalPages !== 1 ? "s" : ""} total</>}
+        </span>
+        {tooManyPages && (
+          <span className="text-danger font-medium">
+            Max {MAX_TOTAL_PAGES} pages allowed
+          </span>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2 justify-end">
+        <Button variant="secondary" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button
+          size="sm"
+          onClick={onStart}
+          disabled={!allCounted || tooManyPages}
+        >
+          Start Import
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// --- File progress indicator (shared between processing/streaming) ---
+
+function FileProgressStrip({ files, singleFile }: { files: ImportFile[]; singleFile: boolean }) {
+  if (singleFile) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+      {files.map((f, i) => (
+        <div
+          key={i}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-all ${
+            f.status === "processing"
+              ? "bg-accent/10 text-accent ring-1 ring-accent/20"
+              : f.status === "done"
+                ? "bg-success/8 text-success"
+                : f.status === "error"
+                  ? "bg-danger/8 text-danger"
+                  : "bg-surface-alt text-text-light"
+          }`}
+          title={f.error || f.file.name}
+        >
+          {f.status === "processing" && (
+            <span className="w-2.5 h-2.5 border-[1.5px] border-accent/30 border-t-accent rounded-full animate-spin shrink-0" />
+          )}
+          {f.status === "done" && (
+            <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          )}
+          {f.status === "error" && (
+            <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          )}
+          {f.status === "pending" && (
+            <span className="w-2 h-2 rounded-full bg-border shrink-0" />
+          )}
+          <span className="truncate max-w-[120px]">
+            {f.file.name.replace(/\.pdf$/i, "")}
+          </span>
+          {f.status === "done" && f.transactionCount > 0 && (
+            <span className="text-[10px] opacity-70">{f.transactionCount}</span>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -275,11 +497,13 @@ const PHASE_META: Record<ParseProgress["phase"], { label: string; icon: JSX.Elem
 
 const PHASES: ParseProgress["phase"][] = ["rendering", "analyzing", "done"];
 
-function ProcessingView({ progress }: { progress: ParseProgress }) {
+function ProcessingView({ progress, files, singleFile }: { progress: ParseProgress; files: ImportFile[]; singleFile: boolean }) {
   const currentIdx = PHASES.indexOf(progress.phase);
 
   return (
     <div className="py-6">
+      <FileProgressStrip files={files} singleFile={singleFile} />
+
       {/* Phase steps */}
       <div className="flex items-center justify-center gap-0 mb-8">
         {PHASES.map((phase, i) => {
@@ -407,16 +631,39 @@ function StreamingRow({ txn, categories, isNew }: { txn: ParsedTransaction; cate
   );
 }
 
+function FileSeparatorRow({ fileName, count }: { fileName: string; count?: number }) {
+  return (
+    <tr>
+      <td colSpan={5} className="px-2 pt-3 pb-1">
+        <div className="flex items-center gap-2 text-[10px] text-text-light uppercase tracking-wide">
+          <div className="h-px bg-border flex-1" />
+          <span className="flex items-center gap-1.5 shrink-0">
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            {fileName}
+            {count != null && <span className="text-text-muted">({count})</span>}
+          </span>
+          <div className="h-px bg-border flex-1" />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function StreamingView({
   transactions,
   progress,
   categories,
-  fileName,
+  files,
+  singleFile,
 }: {
   transactions: ParsedTransaction[];
   progress: ParseProgress;
   categories: Category[];
-  fileName: string;
+  files: ImportFile[];
+  singleFile: boolean;
 }) {
   const prevCountRef = useRef(0);
   const newStartIndex = prevCountRef.current;
@@ -428,8 +675,30 @@ function StreamingView({
   const income = transactions.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const expense = transactions.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
 
+  const doneFiles = files.filter((f) => f.status === "done").length;
+  const processingFiles = files.filter((f) => f.status === "processing").length;
+  const activeFileCount = doneFiles + processingFiles;
+
+  // Group transactions by sourceFile for separator insertion (inline — no useMemo
+  // since `transactions` changes every 80ms during streaming and grouping is O(n))
+  let groupedRows: { fileName: string; txns: { txn: ParsedTransaction; globalIndex: number }[] }[] | null = null;
+  if (!singleFile) {
+    groupedRows = [];
+    let currentFile: string | null = null;
+    for (let i = 0; i < transactions.length; i++) {
+      const t = transactions[i];
+      if (t.sourceFile !== currentFile) {
+        currentFile = t.sourceFile ?? null;
+        groupedRows.push({ fileName: currentFile ?? "Unknown", txns: [] });
+      }
+      groupedRows[groupedRows.length - 1].txns.push({ txn: t, globalIndex: i });
+    }
+  }
+
   return (
     <div className="animate-slide-up">
+      <FileProgressStrip files={files} singleFile={singleFile} />
+
       {/* Live status bar */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2.5 text-xs text-text-muted">
@@ -441,7 +710,11 @@ function StreamingView({
             <span className="font-bold text-text tabular-nums">{transactions.length} found</span>
           </span>
           <span className="text-border">·</span>
-          <span className="truncate max-w-[180px]">{fileName}</span>
+          {singleFile ? (
+            <span className="truncate max-w-[180px]">{files[0]?.file.name}</span>
+          ) : (
+            <span>{activeFileCount} of {files.length} files</span>
+          )}
         </div>
         <div className="flex items-center gap-2 text-[11px] tabular-nums">
           {income > 0 && <span className="text-success font-medium">+{formatCurrency(income)}</span>}
@@ -478,14 +751,30 @@ function StreamingView({
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
-            {transactions.map((txn, i) => (
-              <StreamingRow
-                key={i}
-                txn={txn}
-                categories={categories}
-                isNew={i >= newStartIndex}
-              />
-            ))}
+            {singleFile ? (
+              transactions.map((txn, i) => (
+                <StreamingRow
+                  key={i}
+                  txn={txn}
+                  categories={categories}
+                  isNew={i >= newStartIndex}
+                />
+              ))
+            ) : (
+              groupedRows?.map((group) => (
+                <Fragment key={group.fileName}>
+                  <FileSeparatorRow fileName={group.fileName} />
+                  {group.txns.map(({ txn, globalIndex }) => (
+                    <StreamingRow
+                      key={globalIndex}
+                      txn={txn}
+                      categories={categories}
+                      isNew={globalIndex >= newStartIndex}
+                    />
+                  ))}
+                </Fragment>
+              ))
+            )}
             {/* Analyzing indicator row */}
             <tr>
               <td colSpan={5} className="p-2">
@@ -508,7 +797,7 @@ function StreamingView({
 
 // --- Done ---
 
-function DoneView({ count, onClose }: { count: number; onClose: () => void }) {
+function DoneView({ count, fileCount, onClose }: { count: number; fileCount: number; onClose: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-10 gap-4 animate-slide-up">
       <div className="w-14 h-14 rounded-full bg-success/10 flex items-center justify-center">
@@ -521,7 +810,9 @@ function DoneView({ count, onClose }: { count: number; onClose: () => void }) {
           {count} transaction{count !== 1 ? "s" : ""} imported
         </p>
         <p className="text-xs text-text-muted">
-          They'll appear in the cashflow view for their respective months.
+          {fileCount > 1
+            ? `From ${fileCount} statements. They'll appear in the cashflow view for their respective months.`
+            : "They'll appear in the cashflow view for their respective months."}
         </p>
       </div>
       <Button onClick={onClose} className="mt-1">Done</Button>
@@ -725,21 +1016,36 @@ function ReviewView({
   transactions: initial,
   categories,
   importing,
+  files,
+  singleFile,
   onImport,
   onCancel,
-  fileName,
 }: {
   transactions: ParsedTransaction[];
   categories: Category[];
   importing: boolean;
+  files: ImportFile[];
+  singleFile: boolean;
   onImport: (txns: ParsedTransaction[]) => void;
   onCancel: () => void;
-  fileName: string;
 }) {
   const [rows, setRows] = useState<ParsedTransaction[]>(initial);
+  const [fileFilter, setFileFilter] = useState<string | null>(null);
+
+  const sourceFiles = useMemo(() => {
+    if (singleFile) return [];
+    const names = new Set<string>();
+    for (const r of rows) if (r.sourceFile) names.add(r.sourceFile);
+    return Array.from(names);
+  }, [rows, singleFile]);
+
+  const filteredRows = useMemo(() => {
+    if (!fileFilter) return rows;
+    return rows.filter((r) => r.sourceFile === fileFilter);
+  }, [rows, fileFilter]);
 
   const selectedCount = rows.filter((r) => r.selected).length;
-  const allSelected = rows.length > 0 && selectedCount === rows.length;
+  const allSelected = filteredRows.length > 0 && filteredRows.every((r) => r.selected);
 
   const { totals, uncategorizedCount, duplicateCount } = useMemo(() => {
     let income = 0, expense = 0, uncategorized = 0, duplicates = 0;
@@ -753,29 +1059,63 @@ function ReviewView({
     return { totals: { income, expense }, uncategorizedCount: uncategorized, duplicateCount: duplicates };
   }, [rows]);
 
-  function updateRow(index: number, updates: Partial<ParsedTransaction>) {
+  // Failed files warning
+  const failedFiles = files.filter((f) => f.status === "error");
+
+  function getRowGlobalIndex(filteredIndex: number): number {
+    if (!fileFilter) return filteredIndex;
+    const targetRow = filteredRows[filteredIndex];
+    return rows.indexOf(targetRow);
+  }
+
+  function updateRow(filteredIndex: number, updates: Partial<ParsedTransaction>) {
+    const globalIndex = getRowGlobalIndex(filteredIndex);
     setRows((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, ...updates } : r)),
+      prev.map((r, i) => (i === globalIndex ? { ...r, ...updates } : r)),
     );
   }
 
-  function removeRow(index: number) {
-    setRows((prev) => prev.filter((_, i) => i !== index));
+  function removeRow(filteredIndex: number) {
+    const globalIndex = getRowGlobalIndex(filteredIndex);
+    setRows((prev) => prev.filter((_, i) => i !== globalIndex));
   }
 
   function toggleAll() {
     const newVal = !allSelected;
-    setRows((prev) => prev.map((r) => ({ ...r, selected: newVal })));
+    if (fileFilter) {
+      // Only toggle rows matching the current filter
+      const filteredSet = new Set(filteredRows);
+      setRows((prev) => prev.map((r) => (filteredSet.has(r) ? { ...r, selected: newVal } : r)));
+    } else {
+      setRows((prev) => prev.map((r) => ({ ...r, selected: newVal })));
+    }
   }
+
+  const summaryLabel = singleFile
+    ? `${rows.length} transactions · ${files[0]?.file.name ?? ""}`
+    : `${rows.length} transactions · ${sourceFiles.length} files`;
 
   return (
     <div className="animate-slide-up">
+      {/* Failed files warning */}
+      {failedFiles.length > 0 && (
+        <div className="flex items-start gap-2 bg-warning/8 text-warning rounded-lg px-3 py-2 mb-3 text-xs">
+          <svg className="w-3.5 h-3.5 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>
+            {failedFiles.length} file{failedFiles.length !== 1 ? "s" : ""} failed:{" "}
+            {failedFiles.map((f) => f.file.name).join(", ")}
+          </span>
+        </div>
+      )}
+
       {/* Summary bar */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2.5 text-xs text-text-muted">
-          <span className="font-bold text-text">{rows.length} transactions</span>
-          <span className="text-border">·</span>
-          <span className="truncate max-w-[180px]">{fileName}</span>
+          <span className="font-bold text-text">{summaryLabel}</span>
         </div>
         <div className="flex items-center gap-1.5">
           {duplicateCount > 0 && (
@@ -790,6 +1130,40 @@ function ReviewView({
           )}
         </div>
       </div>
+
+      {/* File filter chips (multi-file only) */}
+      {!singleFile && sourceFiles.length > 1 && (
+        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setFileFilter(null)}
+            className={`text-[11px] px-2 py-1 rounded-md transition-colors cursor-pointer ${
+              !fileFilter
+                ? "bg-accent/10 text-accent font-medium"
+                : "bg-surface-alt text-text-muted hover:bg-surface-alt/80"
+            }`}
+          >
+            All ({rows.length})
+          </button>
+          {sourceFiles.map((name) => {
+            const count = rows.filter((r) => r.sourceFile === name).length;
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setFileFilter(fileFilter === name ? null : name)}
+                className={`text-[11px] px-2 py-1 rounded-md transition-colors cursor-pointer truncate max-w-[160px] ${
+                  fileFilter === name
+                    ? "bg-accent/10 text-accent font-medium"
+                    : "bg-surface-alt text-text-muted hover:bg-surface-alt/80"
+                }`}
+              >
+                {name.replace(/\.pdf$/i, "")} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Table */}
       <div className="max-h-[55vh] overflow-y-auto border border-border rounded-lg">
@@ -814,7 +1188,7 @@ function ReviewView({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.length === 0 && (
+            {filteredRows.length === 0 && (
               <tr>
                 <td colSpan={7} className="text-center py-12">
                   <div className="text-text-light">
@@ -822,20 +1196,21 @@ function ReviewView({
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                       <polyline points="14 2 14 8 20 8" />
                     </svg>
-                    <p className="text-xs">All transactions removed</p>
+                    <p className="text-xs">{fileFilter ? "No transactions from this file" : "All transactions removed"}</p>
                   </div>
                 </td>
               </tr>
             )}
-            {rows.map((row, i) => (
+            {filteredRows.map((row, i) => (
               <ReviewRow
-                key={i}
+                key={`${row.sourceFile}-${row.date}-${row.payee}-${row.amount}-${i}`}
                 row={row}
                 index={i}
                 categories={categories}
                 onUpdate={updateRow}
                 onRemove={removeRow}
                 disabled={importing}
+                showSourceFile={!singleFile && !fileFilter}
               />
             ))}
           </tbody>
@@ -886,6 +1261,7 @@ function ReviewRow({
   onUpdate,
   onRemove,
   disabled,
+  showSourceFile,
 }: {
   row: ParsedTransaction;
   index: number;
@@ -893,6 +1269,7 @@ function ReviewRow({
   onUpdate: (index: number, updates: Partial<ParsedTransaction>) => void;
   onRemove: (index: number) => void;
   disabled: boolean;
+  showSourceFile: boolean;
 }) {
   const isUncategorized = row.selected && !row.category_id;
   const isDuplicate = !!row.duplicate;
@@ -938,6 +1315,11 @@ function ReviewRow({
           {isDuplicate && (
             <span className="text-[9px] font-semibold text-text-light bg-border/50 px-1.5 py-px rounded shrink-0" title="A matching transaction already exists in the database">
               Exists
+            </span>
+          )}
+          {showSourceFile && row.sourceFile && (
+            <span className="text-[9px] text-text-light bg-surface-alt px-1.5 py-px rounded shrink-0 truncate max-w-[80px]" title={row.sourceFile}>
+              {row.sourceFile.replace(/\.pdf$/i, "")}
             </span>
           )}
         </div>

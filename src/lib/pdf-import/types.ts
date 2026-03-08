@@ -11,13 +11,23 @@ export interface ParsedTransaction {
   notes: string;
   selected: boolean;
   duplicate?: boolean; // true if a matching transaction exists in the DB
+  sourceFile?: string; // original filename for multi-file grouping
+}
+
+export interface ImportFile {
+  file: File;
+  pageCount?: number;
+  status: "pending" | "processing" | "done" | "error";
+  error?: string;
+  transactionCount: number;
 }
 
 export type ImportState =
   | { step: "idle" }
-  | { step: "processing"; progress: ParseProgress }
-  | { step: "streaming"; transactions: ParsedTransaction[]; progress: ParseProgress }
-  | { step: "reviewing"; transactions: ParsedTransaction[] }
+  | { step: "file-queue"; files: ImportFile[] }
+  | { step: "processing"; progress: ParseProgress; files: ImportFile[] }
+  | { step: "streaming"; transactions: ParsedTransaction[]; progress: ParseProgress; files: ImportFile[] }
+  | { step: "reviewing"; transactions: ParsedTransaction[]; files: ImportFile[] }
   | { step: "importing"; transactions: ParsedTransaction[] }
-  | { step: "done"; count: number }
+  | { step: "done"; count: number; fileCount: number }
   | { step: "error"; code: ImportErrorCode; title: string; message: string; suggestion: string };

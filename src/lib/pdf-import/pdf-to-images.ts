@@ -61,3 +61,14 @@ export async function pdfToImages(
   pdf.destroy();
   return images;
 }
+
+/** Quick page count without rendering — used for multi-file validation */
+export async function getPageCount(file: File): Promise<number> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+  const count = pdf.numPages;
+  pdf.destroy();
+  return count;
+}
