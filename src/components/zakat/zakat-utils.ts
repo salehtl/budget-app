@@ -4,6 +4,38 @@ export type Madhab = "hanafi" | "maliki" | "shafii" | "hanbali";
 export type StockMethod = "trading" | "investment" | "shortcut";
 export type HoldMethod = "investment" | "shortcut" | "per-share";
 
+export interface HoldPosition {
+  id: string;
+  label: string; // e.g. "Dubai Islamic Bank", "Emirates NBD"
+  method: HoldMethod;
+  marketValue: number; // used for investment/shortcut methods
+  zakatablePercent: number; // 0-100, for investment method
+  shareCount: number; // for per-share method
+  zakatPerShare: number; // for per-share method
+}
+
+export function createHoldPosition(): HoldPosition {
+  return {
+    id: crypto.randomUUID(),
+    label: "",
+    method: "per-share",
+    marketValue: 0,
+    zakatablePercent: 25,
+    shareCount: 0,
+    zakatPerShare: 0,
+  };
+}
+
+export function calcHoldPositionZakatable(pos: HoldPosition): number {
+  if (pos.method === "per-share") {
+    return pos.shareCount * pos.zakatPerShare;
+  } else if (pos.method === "investment") {
+    return pos.marketValue * (pos.zakatablePercent / 100);
+  } else {
+    return pos.marketValue * 0.25;
+  }
+}
+
 export interface MadhabConfig {
   label: string;
   goldNisabGrams: number;
@@ -63,14 +95,13 @@ export interface ZakatInputs {
   goldJewelryGrams: number;
   goldPricePerGram: number;
   // Stocks
-  stockMethod: StockMethod; // legacy/compat
-  stockMarketValue: number; // legacy/compat
   stockTradingValue: number; // portion held for trading (100% zakatable)
-  stockHoldValue: number; // portion held long-term
-  stockHoldMethod: HoldMethod; // how to value the hold portion
-  stockZakatablePercent: number; // 0-100, for investment method
-  stockShareCount: number; // for per-share method: number of shares
-  stockZakatPerShare: number; // for per-share method: zakatable amount per share
+  // Simple mode: single cumulative hold value + method
+  stockHoldValue: number;
+  stockHoldMethod: HoldMethod;
+  stockHoldPercent: number; // 0-100, for investment method in simple mode
+  // Detailed mode: granular per-stock positions
+  holdPositions: HoldPosition[];
   // Detailed mode extras
   silverGrams: number;
   silverPricePerGram: number;
@@ -89,8 +120,7 @@ export interface ZakatBreakdown {
   stocksZakatable: number;
   stockTradingZakatable: number;
   stockHoldZakatable: number;
-  stockMethod: StockMethod;
-  stockHoldMethod: HoldMethod;
+  holdPositionBreakdowns: { label: string; method: HoldMethod; zakatable: number }[];
   grossZakatable: number;
   debtDeduction: number;
   netZakatable: number;
@@ -115,25 +145,34 @@ export function calculateZakat(inputs: ZakatInputs): ZakatBreakdown {
   // Silver
   const silverValue = inputs.silverGrams * inputs.silverPricePerGram;
 
-  // Stocks — simple mode uses stockMarketValue + stockMethod,
-  // detailed mode splits into trading + hold portions
-  let stockTradingZakatable = 0;
+  // Stocks — trading portion (100% zakatable)
+  const stockTradingZakatable = inputs.stockTradingValue;
+
+  // Hold — detailed mode uses per-position list, simple mode uses single cumulative value
+  let holdPositionBreakdowns: { label: string; method: HoldMethod; zakatable: number }[] = [];
   let stockHoldZakatable = 0;
 
-  // Trading portion — always 100% zakatable
-  stockTradingZakatable = inputs.stockTradingValue;
-
-  // Hold portion — depends on method
-  if (inputs.stockHoldValue > 0 || (inputs.stockHoldMethod === "per-share" && inputs.stockShareCount > 0)) {
+  if (inputs.holdPositions.length > 0) {
+    // Detailed mode: granular per-stock
+    holdPositionBreakdowns = inputs.holdPositions.map((pos) => ({
+      label: pos.label || "Unnamed",
+      method: pos.method,
+      zakatable: calcHoldPositionZakatable(pos),
+    }));
+    stockHoldZakatable = holdPositionBreakdowns.reduce((sum, b) => sum + b.zakatable, 0);
+  } else if (inputs.stockHoldValue > 0) {
+    // Simple mode: single cumulative hold
     if (inputs.stockHoldMethod === "investment") {
-      stockHoldZakatable = inputs.stockHoldValue * (inputs.stockZakatablePercent / 100);
-    } else if (inputs.stockHoldMethod === "per-share") {
-      // e.g. Dubai Islamic Bank publishes zakatable amount per share
-      stockHoldZakatable = inputs.stockShareCount * inputs.stockZakatPerShare;
-    } else {
-      // 25% shortcut
+      stockHoldZakatable = inputs.stockHoldValue * (inputs.stockHoldPercent / 100);
+    } else if (inputs.stockHoldMethod === "shortcut") {
       stockHoldZakatable = inputs.stockHoldValue * 0.25;
     }
+    // per-share not used in simple mode
+    holdPositionBreakdowns = [{
+      label: "Long-term hold",
+      method: inputs.stockHoldMethod,
+      zakatable: stockHoldZakatable,
+    }];
   }
 
   const stocksZakatable = stockTradingZakatable + stockHoldZakatable;
@@ -172,8 +211,7 @@ export function calculateZakat(inputs: ZakatInputs): ZakatBreakdown {
     stocksZakatable,
     stockTradingZakatable,
     stockHoldZakatable,
-    stockMethod: inputs.stockMethod,
-    stockHoldMethod: inputs.stockHoldMethod,
+    holdPositionBreakdowns,
     grossZakatable,
     debtDeduction,
     netZakatable,
@@ -191,6 +229,7 @@ export interface ZakatHistoryEntry {
   mode: "simple" | "detailed";
   madhab: Madhab;
   breakdown: ZakatBreakdown;
+  inputs?: ZakatInputs;
   transactionId: string | null;
 }
 
@@ -200,14 +239,11 @@ export function defaultInputs(): ZakatInputs {
     goldInvestmentGrams: 0,
     goldJewelryGrams: 0,
     goldPricePerGram: 280, // rough AED per gram default
-    stockMethod: "trading",
-    stockMarketValue: 0,
     stockTradingValue: 0,
     stockHoldValue: 0,
-    stockHoldMethod: "per-share",
-    stockZakatablePercent: 25,
-    stockShareCount: 0,
-    stockZakatPerShare: 0,
+    stockHoldMethod: "shortcut",
+    stockHoldPercent: 25,
+    holdPositions: [],
     silverGrams: 0,
     silverPricePerGram: 3.5, // rough AED per gram default
     debts: 0,
