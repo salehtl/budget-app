@@ -2,7 +2,7 @@
 
 export type Madhab = "hanafi" | "maliki" | "shafii" | "hanbali";
 export type StockMethod = "trading" | "investment" | "shortcut";
-export type HoldMethod = "investment" | "shortcut";
+export type HoldMethod = "investment" | "shortcut" | "per-share";
 
 export interface MadhabConfig {
   label: string;
@@ -63,12 +63,14 @@ export interface ZakatInputs {
   goldJewelryGrams: number;
   goldPricePerGram: number;
   // Stocks
-  stockMethod: StockMethod; // simple mode only
-  stockMarketValue: number; // simple mode: total value
-  stockTradingValue: number; // detailed mode: portion held for trading
-  stockHoldValue: number; // detailed mode: portion held long-term
+  stockMethod: StockMethod; // legacy/compat
+  stockMarketValue: number; // legacy/compat
+  stockTradingValue: number; // portion held for trading (100% zakatable)
+  stockHoldValue: number; // portion held long-term
   stockHoldMethod: HoldMethod; // how to value the hold portion
   stockZakatablePercent: number; // 0-100, for investment method
+  stockShareCount: number; // for per-share method: number of shares
+  stockZakatPerShare: number; // for per-share method: zakatable amount per share
   // Detailed mode extras
   silverGrams: number;
   silverPricePerGram: number;
@@ -118,22 +120,19 @@ export function calculateZakat(inputs: ZakatInputs): ZakatBreakdown {
   let stockTradingZakatable = 0;
   let stockHoldZakatable = 0;
 
-  if (inputs.stockTradingValue > 0 || inputs.stockHoldValue > 0) {
-    // Detailed mode split
-    stockTradingZakatable = inputs.stockTradingValue;
+  // Trading portion — always 100% zakatable
+  stockTradingZakatable = inputs.stockTradingValue;
+
+  // Hold portion — depends on method
+  if (inputs.stockHoldValue > 0 || (inputs.stockHoldMethod === "per-share" && inputs.stockShareCount > 0)) {
     if (inputs.stockHoldMethod === "investment") {
       stockHoldZakatable = inputs.stockHoldValue * (inputs.stockZakatablePercent / 100);
+    } else if (inputs.stockHoldMethod === "per-share") {
+      // e.g. Dubai Islamic Bank publishes zakatable amount per share
+      stockHoldZakatable = inputs.stockShareCount * inputs.stockZakatPerShare;
     } else {
+      // 25% shortcut
       stockHoldZakatable = inputs.stockHoldValue * 0.25;
-    }
-  } else if (inputs.stockMarketValue > 0) {
-    // Simple mode — single value + method
-    if (inputs.stockMethod === "trading") {
-      stockTradingZakatable = inputs.stockMarketValue;
-    } else if (inputs.stockMethod === "investment") {
-      stockHoldZakatable = inputs.stockMarketValue * (inputs.stockZakatablePercent / 100);
-    } else {
-      stockHoldZakatable = inputs.stockMarketValue * 0.25;
     }
   }
 
@@ -205,11 +204,13 @@ export function defaultInputs(): ZakatInputs {
     stockMarketValue: 0,
     stockTradingValue: 0,
     stockHoldValue: 0,
-    stockHoldMethod: "shortcut",
+    stockHoldMethod: "per-share",
     stockZakatablePercent: 25,
+    stockShareCount: 0,
+    stockZakatPerShare: 0,
     silverGrams: 0,
     silverPricePerGram: 3.5, // rough AED per gram default
     debts: 0,
-    madhab: "hanafi",
+    madhab: "maliki",
   };
 }

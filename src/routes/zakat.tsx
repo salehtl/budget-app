@@ -137,14 +137,14 @@ function ZakatPage() {
   // Live preview calculation (runs on every input change)
   const preview = useMemo(() => {
     const calc = mode === "simple"
-      ? { ...inputs, silverGrams: 0, silverPricePerGram: 0, debts: 0, madhab: "maliki" as Madhab }
+      ? { ...inputs, silverGrams: 0, silverPricePerGram: 0, debts: 0 }
       : inputs;
     return calculateZakat(calc);
   }, [inputs, mode]);
 
   function handleCalculate() {
     const calc = mode === "simple"
-      ? { ...inputs, silverGrams: 0, silverPricePerGram: 0, debts: 0, madhab: "maliki" as Madhab }
+      ? { ...inputs, silverGrams: 0, silverPricePerGram: 0, debts: 0 }
       : inputs;
     setResult(calculateZakat(calc));
   }
@@ -243,8 +243,8 @@ function ZakatPage() {
     + (config.jewelryZakatable ? inputs.goldJewelryGrams * inputs.goldPricePerGram : 0);
   const silverSubtotal = inputs.silverGrams * inputs.silverPricePerGram;
   const hasAnyInput = inputs.cash > 0 || inputs.goldInvestmentGrams > 0
-    || inputs.goldJewelryGrams > 0 || inputs.stockMarketValue > 0
-    || inputs.stockTradingValue > 0 || inputs.stockHoldValue > 0
+    || inputs.goldJewelryGrams > 0 || inputs.stockTradingValue > 0
+    || inputs.stockHoldValue > 0 || inputs.stockShareCount > 0
     || inputs.silverGrams > 0;
 
   // Nisab progress for live indicator
@@ -294,8 +294,8 @@ function ZakatPage() {
         </div>
         <p className="text-xs text-text-muted mt-2">
           {mode === "simple"
-            ? "Quick calculation for cash, gold, and stocks using Maliki defaults."
-            : "Full control — choose your madhab, split trading vs hold stocks, deduct debts."}
+            ? "Quick calculation for cash, gold, and stocks. Split trading vs hold. Maliki defaults."
+            : "Full control — choose your madhab, configure stock methods, add silver, deduct debts."}
         </p>
       </div>
 
@@ -514,96 +514,106 @@ function ZakatPage() {
               <StepNumber n={mode === "detailed" ? 4 : 3} />
               Stocks & Investments
               <Tooltip text="Zakat on stocks depends on your intention: trading (full value) vs long-term investment (proportional zakatable assets)." />
-              {inputs.stockMarketValue > 0 && (
+              {preview.stocksZakatable > 0 && (
                 <span className="ml-auto text-xs tabular-nums text-text-muted font-normal">
                   {formatCurrency(preview.stocksZakatable)}
                 </span>
               )}
             </>
           }
-          subtitle={!stocksOpen && inputs.stockMarketValue > 0 ? formatCurrency(preview.stocksZakatable) : undefined}
+          subtitle={!stocksOpen && preview.stocksZakatable > 0 ? formatCurrency(preview.stocksZakatable) : undefined}
         >
           <div className="space-y-3">
-            {mode === "simple" ? (
-              <>
-                <CurrencyInput
-                  label="Total market value of shares (AED)"
-                  value={inputs.stockMarketValue}
-                  onChange={(v) => updateField("stockMarketValue", v)}
-                />
-                {inputs.stockMarketValue > 0 && (
-                  <p className="text-xs text-text-muted">
-                    Simple mode uses the trading method — full market value is zakatable at 2.5%.
-                  </p>
-                )}
-              </>
-            ) : (
-              <>
-                <CurrencyInput
-                  label="Trading stocks — bought to sell for profit (AED)"
-                  value={inputs.stockTradingValue}
-                  onChange={(v) => updateField("stockTradingValue", v)}
-                />
-                {inputs.stockTradingValue > 0 && (
-                  <p className="text-xs text-text-muted mt-1">
-                    Full market value is zakatable: {formatCurrency(inputs.stockTradingValue)}
-                  </p>
-                )}
+            <CurrencyInput
+              label="Trading stocks — bought to sell for profit (AED)"
+              value={inputs.stockTradingValue}
+              onChange={(v) => updateField("stockTradingValue", v)}
+            />
+            {inputs.stockTradingValue > 0 && (
+              <p className="text-xs text-text-muted mt-1">
+                Full market value is zakatable: {formatCurrency(inputs.stockTradingValue)}
+              </p>
+            )}
 
-                <div className="border-t border-border/50 pt-3">
-                  <CurrencyInput
-                    label="Long-term hold stocks — not for resale (AED)"
-                    value={inputs.stockHoldValue}
-                    onChange={(v) => updateField("stockHoldValue", v)}
+            <div className="border-t border-border/50 pt-3">
+              <CurrencyInput
+                label="Long-term hold stocks — not for resale (AED)"
+                value={inputs.stockHoldValue}
+                onChange={(v) => updateField("stockHoldValue", v)}
+              />
+            </div>
+
+            {inputs.stockHoldValue > 0 && (
+              <>
+                <div>
+                  <Select
+                    label="Hold stock zakat method"
+                    value={inputs.stockHoldMethod}
+                    onChange={(e) => updateField("stockHoldMethod", e.target.value as HoldMethod)}
+                    options={[
+                      { value: "per-share", label: "Per-share — company provides zakatable amount per share" },
+                      { value: "investment", label: "Investment — on zakatable assets portion" },
+                      { value: "shortcut", label: "25% shortcut — assume 25% is zakatable" },
+                    ]}
+                  />
+                  <Tooltip
+                    text={
+                      inputs.stockHoldMethod === "per-share"
+                        ? "Some companies (e.g. Dubai Islamic Bank) publish a zakatable amount per share in their annual zakat report. Enter the number of shares and the per-share amount."
+                        : inputs.stockHoldMethod === "investment"
+                          ? "For long-term holdings. Find zakatable assets (cash + receivables + inventory) in the company's annual report, divide by market cap."
+                          : "Scholars recommend this when you can't access company financials. Effective rate: 0.625%."
+                    }
+                    block
                   />
                 </div>
-
-                {inputs.stockHoldValue > 0 && (
+                {inputs.stockHoldMethod === "per-share" && (
                   <>
-                    <div>
-                      <Select
-                        label="Hold stock zakat method"
-                        value={inputs.stockHoldMethod}
-                        onChange={(e) => updateField("stockHoldMethod", e.target.value as HoldMethod)}
-                        options={[
-                          { value: "investment", label: "Investment — on zakatable assets portion" },
-                          { value: "shortcut", label: "25% shortcut — assume 25% is zakatable" },
-                        ]}
-                      />
-                      <Tooltip
-                        text={
-                          inputs.stockHoldMethod === "investment"
-                            ? "For long-term holdings. Find zakatable assets (cash + receivables + inventory) in the company's annual report, divide by market cap."
-                            : "Scholars recommend this when you can't access company financials. Effective rate: 0.625%."
-                        }
-                        block
-                      />
-                    </div>
-                    {inputs.stockHoldMethod === "investment" && (
-                      <div>
-                        <Input
-                          label="Zakatable assets as % of market cap"
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="any"
-                          value={inputs.stockZakatablePercent || ""}
-                          onChange={(e) => numVal("stockZakatablePercent", e.target.value)}
-                          placeholder="25"
-                        />
-                        {inputs.stockHoldValue > 0 && (
-                          <p className="text-xs text-text-muted mt-1">
-                            Zakatable portion: {formatCurrency(inputs.stockHoldValue * (inputs.stockZakatablePercent / 100))}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {inputs.stockHoldMethod === "shortcut" && (
+                    <Input
+                      label="Number of shares"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={inputs.stockShareCount || ""}
+                      onChange={(e) => numVal("stockShareCount", e.target.value)}
+                      placeholder="0"
+                    />
+                    <CurrencyInput
+                      label="Zakatable amount per share (AED)"
+                      value={inputs.stockZakatPerShare}
+                      onChange={(v) => updateField("stockZakatPerShare", v)}
+                      placeholder="0.00"
+                    />
+                    {inputs.stockShareCount > 0 && inputs.stockZakatPerShare > 0 && (
                       <p className="text-xs text-text-muted">
-                        Zakatable portion: {formatCurrency(inputs.stockHoldValue * 0.25)}
+                        Zakatable portion: {formatCurrency(inputs.stockShareCount * inputs.stockZakatPerShare)}
                       </p>
                     )}
                   </>
+                )}
+                {inputs.stockHoldMethod === "investment" && (
+                  <div>
+                    <Input
+                      label="Zakatable assets as % of market cap"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      value={inputs.stockZakatablePercent || ""}
+                      onChange={(e) => numVal("stockZakatablePercent", e.target.value)}
+                      placeholder="25"
+                    />
+                    {inputs.stockHoldValue > 0 && (
+                      <p className="text-xs text-text-muted mt-1">
+                        Zakatable portion: {formatCurrency(inputs.stockHoldValue * (inputs.stockZakatablePercent / 100))}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {inputs.stockHoldMethod === "shortcut" && (
+                  <p className="text-xs text-text-muted">
+                    Zakatable portion: {formatCurrency(inputs.stockHoldValue * 0.25)}
+                  </p>
                 )}
               </>
             )}
@@ -687,7 +697,7 @@ function ZakatPage() {
               )}
               {result.stockHoldZakatable > 0 && (
                 <BreakdownRow
-                  label={`Stocks (hold — ${result.stockHoldMethod})`}
+                  label={`Stocks (hold — ${result.stockHoldMethod === "per-share" ? "per share" : result.stockHoldMethod})`}
                   value={result.stockHoldZakatable}
                 />
               )}
@@ -886,6 +896,10 @@ function ZakatInfoModal({ open, onClose }: { open: boolean; onClose: () => void 
             <InfoRow
               title="Trading"
               desc="If you buy stocks to sell for profit, pay 2.5% on the full market value."
+            />
+            <InfoRow
+              title="Per-share"
+              desc="Some companies (e.g. Dubai Islamic Bank) publish a zakatable amount per share annually. Multiply by your share count — most accurate method when available."
             />
             <InfoRow
               title="Investment"
