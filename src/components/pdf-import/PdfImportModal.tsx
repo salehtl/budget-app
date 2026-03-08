@@ -400,6 +400,12 @@ function FileQueueView({
         )}
       </div>
 
+      {/* Privacy notice */}
+      <p className="text-[11px] text-text-muted mb-4">
+        Your statement data will be sent to Anthropic for processing.{" "}
+        <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener noreferrer" className="underline">Privacy Policy</a>
+      </p>
+
       {/* Actions */}
       <div className="flex gap-2 justify-end">
         <Button variant="secondary" size="sm" onClick={onCancel}>Cancel</Button>
