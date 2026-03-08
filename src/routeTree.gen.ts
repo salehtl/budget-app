@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ZakatRouteImport } from './routes/zakat'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as RecurringRouteImport } from './routes/recurring'
 import { Route as OverviewRouteImport } from './routes/overview'
 import { Route as IndexRouteImport } from './routes/index'
 
+const ZakatRoute = ZakatRouteImport.update({
+  id: '/zakat',
+  path: '/zakat',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -40,12 +46,14 @@ export interface FileRoutesByFullPath {
   '/overview': typeof OverviewRoute
   '/recurring': typeof RecurringRoute
   '/settings': typeof SettingsRoute
+  '/zakat': typeof ZakatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/overview': typeof OverviewRoute
   '/recurring': typeof RecurringRoute
   '/settings': typeof SettingsRoute
+  '/zakat': typeof ZakatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,14 @@ export interface FileRoutesById {
   '/overview': typeof OverviewRoute
   '/recurring': typeof RecurringRoute
   '/settings': typeof SettingsRoute
+  '/zakat': typeof ZakatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/overview' | '/recurring' | '/settings'
+  fullPaths: '/' | '/overview' | '/recurring' | '/settings' | '/zakat'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/overview' | '/recurring' | '/settings'
-  id: '__root__' | '/' | '/overview' | '/recurring' | '/settings'
+  to: '/' | '/overview' | '/recurring' | '/settings' | '/zakat'
+  id: '__root__' | '/' | '/overview' | '/recurring' | '/settings' | '/zakat'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,10 +76,18 @@ export interface RootRouteChildren {
   OverviewRoute: typeof OverviewRoute
   RecurringRoute: typeof RecurringRoute
   SettingsRoute: typeof SettingsRoute
+  ZakatRoute: typeof ZakatRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/zakat': {
+      id: '/zakat'
+      path: '/zakat'
+      fullPath: '/zakat'
+      preLoaderRoute: typeof ZakatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -107,6 +124,7 @@ const rootRouteChildren: RootRouteChildren = {
   OverviewRoute: OverviewRoute,
   RecurringRoute: RecurringRoute,
   SettingsRoute: SettingsRoute,
+  ZakatRoute: ZakatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -5,6 +5,7 @@ const navItems = [
   { to: "/", label: "Cashflow", icon: CashflowIcon },
   { to: "/recurring", label: "Recurring", icon: RecurringIcon },
   { to: "/overview", label: "Overview", icon: OverviewIcon },
+  { to: "/zakat", label: "Zakat", icon: ZakatIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
@@ -119,6 +120,18 @@ function RecurringIcon({ className }: { className?: string }) {
       <path d="M2.5 22v-6h6" />
       <path d="M21.34 15.57A10 10 0 0 1 5.67 19.74l-3.17-2.74" />
       <path d="M2.66 8.43A10 10 0 0 1 18.33 4.26l3.17 2.74" />
+    </svg>
+  );
+}
+
+function ZakatIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v18" />
+      <path d="M4 7l8-4 8 4" />
+      <path d="M4 7c0 3 2 5 4 5s4-2 4-5" />
+      <path d="M12 7c0 3 2 5 4 5s4-2 4-5" />
+      <path d="M8 21h8" />
     </svg>
   );
 }
