@@ -53,7 +53,7 @@ function SettingsPage() {
   const [showCSVExport, setShowCSVExport] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
-  const { entries, latestVersion, markSeen } = useChangelog();
+  const { entries, latestVersion, hasNew, dismissed, markSeen, setDismissNotifications } = useChangelog();
 
   useEffect(() => {
     getSetting(db, "last_export").then(setLastExport);
@@ -239,19 +239,37 @@ function SettingsPage() {
       {/* About */}
       <section className="bg-surface rounded-xl border border-border p-4">
         <h2 className="text-sm font-bold mb-3">About</h2>
-        <div className="space-y-1.5 text-xs text-text-muted">
-          <div className="flex items-center gap-2">
-            <p>Cactus Money v{latestVersion}</p>
-            <button
-              onClick={() => setShowChangelog(true)}
-              className="text-xs text-accent hover:underline cursor-pointer"
-            >
-              What's New
-            </button>
+        <div className="space-y-3">
+          <button
+            onClick={() => setShowChangelog(true)}
+            className="w-full flex items-center justify-between p-3 rounded-lg border border-border hover:bg-surface-alt transition-colors cursor-pointer text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 8v4l3 3" />
+                  <circle cx="12" cy="12" r="10" />
+                </svg>
+              </div>
+              <div>
+                <div className="text-sm font-medium flex items-center gap-2">
+                  What's New
+                  {hasNew && (
+                    <span className="inline-block w-2 h-2 rounded-full bg-accent" />
+                  )}
+                </div>
+                <p className="text-xs text-text-muted">v{latestVersion} — View changelog</p>
+              </div>
+            </div>
+            <svg className="w-4 h-4 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+          <div className="space-y-1.5 text-xs text-text-muted px-1">
+            <p>Storage: {db.storageType.toUpperCase()}</p>
+            <p>Currency: AED (UAE Dirham)</p>
+            <p>All data stored locally on this device.</p>
           </div>
-          <p>Storage: {db.storageType.toUpperCase()}</p>
-          <p>Currency: AED (UAE Dirham)</p>
-          <p>All data stored locally on this device.</p>
         </div>
       </section>
 
@@ -262,6 +280,8 @@ function SettingsPage() {
           markSeen();
         }}
         entries={entries}
+        dismissed={dismissed}
+        onDismissChange={setDismissNotifications}
       />
 
       <CSVExportModal

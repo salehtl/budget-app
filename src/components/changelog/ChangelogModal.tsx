@@ -7,9 +7,11 @@ interface ChangelogModalProps {
   open: boolean;
   onClose: () => void;
   entries: ChangelogEntry[];
+  dismissed: boolean;
+  onDismissChange: (value: boolean) => void;
 }
 
-export function ChangelogModal({ open, onClose, entries }: ChangelogModalProps) {
+export function ChangelogModal({ open, onClose, entries, dismissed, onDismissChange }: ChangelogModalProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => defaultExpanded(entries));
 
   useEffect(() => {
@@ -68,6 +70,16 @@ export function ChangelogModal({ open, onClose, entries }: ChangelogModalProps) 
           );
         })}
       </div>
+
+      <label className="flex items-center gap-2 mt-4 pt-3 border-t border-border cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={dismissed}
+          onChange={(e) => onDismissChange(e.target.checked)}
+          className="accent-accent w-4 h-4 rounded"
+        />
+        <span className="text-xs text-text-muted">Don't notify me about updates</span>
+      </label>
     </Modal>
   );
 }
