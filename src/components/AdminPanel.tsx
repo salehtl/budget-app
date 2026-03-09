@@ -91,6 +91,21 @@ export function AdminPanel() {
     }
   }
 
+  async function handleSeedCategories() {
+    setLoading("seed-categories");
+    setResult(null);
+    try {
+      await execStatements(db, getSeedSQL());
+      emitDbEvent("categories-changed");
+      await fetchTableCounts();
+      setResult("Default categories seeded.");
+    } catch (e: any) {
+      setResult(`Error: ${e.message}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function handleClearData() {
     setLoading("clear-data");
     setResult(null);
@@ -203,6 +218,16 @@ export function AdminPanel() {
             <div className="space-y-2">
               <Button
                 variant="secondary"
+                onClick={handleSeedCategories}
+                disabled={loading !== null}
+                className="w-full"
+              >
+                {loading === "seed-categories"
+                  ? "Seeding..."
+                  : "Seed Default Categories"}
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={handleSeedDummyData}
                 disabled={loading !== null}
                 className="w-full"
@@ -234,6 +259,7 @@ export function AdminPanel() {
             </div>
 
             <div className="mt-2 text-[10px] text-text-light space-y-0.5">
+              <p><strong>Seed Default Categories</strong> — adds missing default categories (INSERT OR IGNORE)</p>
               <p><strong>Seed Dummy Data</strong> — adds sample transactions to existing DB</p>
               <p><strong>Clear All Data</strong> — removes transactions, tags, budgets (keeps categories & settings)</p>
               <p><strong>Factory Reset</strong> — drops everything, recreates with default categories only</p>

@@ -83,15 +83,17 @@ The main page. Income and Expense tables with inline add/edit rows sharing a 7-c
 
 ### PDF Import (`src/lib/pdf-import/`, `src/components/pdf-import/`)
 
-Pipeline: `PdfImportModal` → `parseStatement()` → `pdfToImages()` → `callClaudeStreaming()` → streaming review → bulk insert.
+Pipeline: `PdfImportModal` → `parseStatement()` → `pdfToImages()` → `provider.stream()` → streaming review → bulk insert.
 
-- **Model:** Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) for speed
-- **Streaming:** Uses `client.messages.stream()` with incremental JSON array parser — emits each transaction object as it completes in the stream. Drip queue in the modal reveals transactions one-by-one (80ms interval) for a smooth LLM-chat-like feel.
+- **LLM-agnostic:** Supports Anthropic, OpenAI, Gemini, and custom (OpenAI-compatible) providers. No SDK dependencies — all providers use raw `fetch` + SSE parsing.
+- **Provider system:** `src/lib/pdf-import/providers/` — each adapter implements `LLMProvider.stream()`. Shared SSE reader in `sse.ts`, shared error classifier and constants in `shared.ts`.
+- **Settings keys:** `llm_provider`, `llm_api_key`, `llm_model`, `llm_base_url`. Auto-migrates from old `anthropic_*` keys on first load.
+- **Default models:** Anthropic: Sonnet 4.6, OpenAI: GPT-4.1 Mini, Gemini: 2.5 Flash
+- **Streaming:** Incremental JSON array parser (`stream-parser.ts`) emits each transaction as it completes. Drip queue (80ms) reveals them one-by-one in the modal.
 - **Parallelization:** Pages batched (5 per batch), up to 3 batches run concurrently via `Promise.all` chunks.
-- **Duplicate detection:** After parsing, queries existing DB transactions in the import's date range, builds fingerprint set (`date|amount|payee_normalized`), auto-deselects matches. Users can re-select if needed.
-- **COEP constraint:** Cannot call Anthropic directly from browser under COEP `require-corp`. Uses server-side proxy plugin in `vite.config.ts`.
-- **Proxy URL setting:** Empty = auto-routes through local dev proxy (`/api/anthropic`). Only set for custom/production proxies.
-- **Error handling:** All API errors sanitized — no technical details leaked to user.
+- **Duplicate detection:** After parsing, queries existing DB transactions in the import's date range, builds fingerprint set (`date|amount|payee_normalized`), auto-deselects matches.
+- **COEP constraint:** Cannot call LLM APIs directly from browser under COEP `require-corp`. Generic proxy in `vite.config.ts` routes `/api/llm/{provider}/*` to upstream APIs with streaming (piped, not buffered).
+- **Error handling:** HTTP status codes classified per provider via data-driven mappings. No technical details leaked to user.
 
 ### Categories Settings (`src/routes/settings.tsx`)
 
@@ -124,12 +126,13 @@ Two-column desktop layout (form left, sticky breakdown right). Mobile: sticky bo
 - **UI Components** (`src/components/ui/`): Button (variants: primary/secondary/danger/ghost), Input, Select, Modal, ConfirmDialog, MonthPicker, MonthRangePicker, Toast
 - **Icons:** Inline SVG components defined in component files (not using an icon library)
 - **Path alias:** `@/*` maps to `./src/*`
+- **Dev tools:** `AdminPanel` component (FAB gear icon, dev-only via `VITE_DEV_TOOLS` env var) — SQL console, table counts, seed categories, seed dummy data, clear data, factory reset
 - **Draft persistence:** sessionStorage with debounced writes (ref guard to skip initial write on load, `JSON.stringify` to save, `removeItem` on reset). Used in cashflow inline-add and zakat calculator.
 
 ## Important Config (vite.config.ts)
 
 - **COOP/COEP headers** required for OPFS: `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`
-- **Anthropic proxy plugin:** Custom middleware forwards `/api/anthropic/*` to `https://api.anthropic.com` server-side. Required because COEP blocks direct browser→Anthropic calls (CORS preflight fails). Handles OPTIONS locally, strips browser headers from POST.
+- **LLM proxy plugin:** Generic middleware routes `/api/llm/{provider}/*` to upstream APIs (Anthropic, OpenAI, Gemini, custom via `X-Target-URL` header). Required because COEP blocks direct browser→API calls. Handles OPTIONS locally, strips browser headers, streams response via `Readable.fromWeb().pipe()`.
 - **Worker format:** ES modules
 - **wa-sqlite** excluded from optimizeDeps (installed from `github:rhashimoto/wa-sqlite`, not npm)
 

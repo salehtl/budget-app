@@ -4,32 +4,64 @@ import tailwindcss from "@tailwindcss/vite";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
+import { Readable } from "stream";
 
-function anthropicProxyPlugin(): PluginOption {
+// Route table: provider prefix → upstream origin
+const PROXY_ROUTES: Record<string, string> = {
+  anthropic: "https://api.anthropic.com",
+  openai: "https://api.openai.com",
+  gemini: "https://generativelanguage.googleapis.com",
+};
+
+function llmProxyPlugin(): PluginOption {
   return {
-    name: "anthropic-proxy",
+    name: "llm-proxy",
     configureServer(server) {
-      // Must run before Vite's internal middleware (including proxy)
       server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith("/api/anthropic")) return next();
+        if (!req.url?.startsWith("/api/llm/")) return next();
 
-        // Handle CORS preflight locally — never forward OPTIONS to Anthropic
+        const corsHeaders = {
+          "Access-Control-Allow-Origin": "*",
+          "Cross-Origin-Resource-Policy": "cross-origin",
+        };
+
+        // Handle CORS preflight
         if (req.method === "OPTIONS") {
           res.writeHead(204, {
-            "Access-Control-Allow-Origin": "*",
+            ...corsHeaders,
             "Access-Control-Allow-Methods": "POST, OPTIONS",
             "Access-Control-Allow-Headers":
-              "Content-Type, x-api-key, anthropic-version",
+              "Content-Type, Authorization, x-api-key, anthropic-version, x-goog-api-key, X-Target-URL",
             "Access-Control-Max-Age": "86400",
-            "Cross-Origin-Resource-Policy": "cross-origin",
           });
           res.end();
           return;
         }
 
-        // Forward POST (and other methods) to Anthropic as server-to-server
-        const targetPath = req.url.replace(/^\/api\/anthropic/, "");
-        const targetUrl = `https://api.anthropic.com${targetPath}`;
+        // Parse /api/llm/{provider}/{rest}
+        const match = req.url.match(/^\/api\/llm\/(\w+)(\/.*)?$/);
+        if (!match) return next();
+
+        const provider = match[1];
+        const restPath = match[2] || "";
+
+        // Determine upstream URL
+        let upstreamOrigin: string;
+        if (provider === "custom") {
+          const customTarget = req.headers["x-target-url"] as string | undefined;
+          if (!customTarget) {
+            res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
+            res.end(JSON.stringify({ error: { type: "proxy_error", message: "X-Target-URL header required for custom provider." } }));
+            return;
+          }
+          upstreamOrigin = customTarget.replace(/\/$/, "");
+        } else if (PROXY_ROUTES[provider]) {
+          upstreamOrigin = PROXY_ROUTES[provider];
+        } else {
+          return next();
+        }
+
+        const upstreamUrl = `${upstreamOrigin}${restPath}`;
 
         // Collect request body
         const chunks: Buffer[] = [];
@@ -38,33 +70,34 @@ function anthropicProxyPlugin(): PluginOption {
           try {
             const body = Buffer.concat(chunks);
 
-            // Forward only the headers Anthropic needs (strip browser headers)
+            // Forward only relevant headers (strip browser headers)
             const headers: Record<string, string> = {
               "Content-Type": req.headers["content-type"] || "application/json",
             };
+            if (req.headers["authorization"]) headers["Authorization"] = req.headers["authorization"] as string;
             if (req.headers["x-api-key"]) headers["x-api-key"] = req.headers["x-api-key"] as string;
             if (req.headers["anthropic-version"]) headers["anthropic-version"] = req.headers["anthropic-version"] as string;
+            if (req.headers["x-goog-api-key"]) headers["x-goog-api-key"] = req.headers["x-goog-api-key"] as string;
 
-            const upstream = await fetch(targetUrl, {
+            const upstream = await fetch(upstreamUrl, {
               method: req.method || "POST",
               headers,
               body,
             });
 
-            // Relay status + body back to browser with CORS headers
-            const responseBody = await upstream.arrayBuffer();
-            res.writeHead(upstream.status, {
-              "Content-Type": upstream.headers.get("content-type") || "application/json",
-              "Access-Control-Allow-Origin": "*",
-              "Cross-Origin-Resource-Policy": "cross-origin",
-            });
-            res.end(Buffer.from(responseBody));
-          } catch (e: any) {
-            res.writeHead(502, {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-              "Cross-Origin-Resource-Policy": "cross-origin",
-            });
+            // Stream the response back (pipe Node readable stream)
+            const contentType = upstream.headers.get("content-type") || "application/json";
+            res.writeHead(upstream.status, { "Content-Type": contentType, ...corsHeaders });
+
+            if (upstream.body) {
+              // Convert Web ReadableStream to Node Readable and pipe
+              const nodeStream = Readable.fromWeb(upstream.body as import("stream/web").ReadableStream);
+              nodeStream.pipe(res);
+            } else {
+              res.end();
+            }
+          } catch {
+            res.writeHead(502, { "Content-Type": "application/json", ...corsHeaders });
             res.end(JSON.stringify({ error: { type: "proxy_error", message: "Failed to connect to upstream API." } }));
           }
         });
@@ -75,7 +108,7 @@ function anthropicProxyPlugin(): PluginOption {
 
 export default defineConfig({
   plugins: [
-    anthropicProxyPlugin(),
+    llmProxyPlugin(),
     TanStackRouterVite({
       routesDirectory: "./src/routes",
       generatedRouteTree: "./src/routeTree.gen.ts",

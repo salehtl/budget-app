@@ -10,7 +10,9 @@ import { getSetting } from "../../db/queries/settings.ts";
 import { parseStatement } from "../../lib/pdf-import/parse-statement.ts";
 import { getPageCount } from "../../lib/pdf-import/pdf-to-images.ts";
 import { bulkInsertTransactions, getExistingFingerprints, txnFingerprint } from "../../lib/pdf-import/bulk-insert.ts";
-import { ImportError } from "../../lib/pdf-import/anthropic-client.ts";
+import { ImportError } from "../../lib/pdf-import/errors.ts";
+import type { ProviderId } from "../../lib/pdf-import/llm-provider.ts";
+import { DEFAULT_PROVIDER, PROVIDER_DEFAULTS } from "../../lib/pdf-import/providers/index.ts";
 import { formatCurrency } from "../../lib/format.ts";
 import type { Category } from "../../types/database.ts";
 import type { ParsedTransaction, ImportState, ImportFile } from "../../lib/pdf-import/types.ts";
@@ -104,21 +106,27 @@ export function PdfImportModal({ open, onClose, files, categories }: PdfImportMo
     txnQueueRef.current = [];
 
     try {
-      const apiKey = await getSetting(db, "anthropic_api_key");
+      const [provider, apiKey, model, baseUrl] = await Promise.all([
+        getSetting(db, "llm_provider"),
+        getSetting(db, "llm_api_key"),
+        getSetting(db, "llm_model"),
+        getSetting(db, "llm_base_url"),
+      ]);
       if (!isCurrent()) return;
-      if (!apiKey) {
+
+      const providerId = (provider || DEFAULT_PROVIDER) as ProviderId;
+      const needsKey = providerId !== "custom";
+
+      if (needsKey && !apiKey) {
         setState({
           step: "error",
           code: "no_api_key",
           title: "API Key Required",
-          message: "You need an Anthropic API key to import PDFs.",
+          message: "You need an API key to import PDFs.",
           suggestion: "Add your API key in Settings under AI Integration.",
         });
         return;
       }
-
-      const proxyUrl = (await getSetting(db, "anthropic_proxy_url")) || "";
-      const model = (await getSetting(db, "anthropic_model")) || "";
 
       const updatedFiles = importFiles.map((f) => ({ ...f }));
       filesRef.current = updatedFiles;
@@ -151,7 +159,12 @@ export function PdfImportModal({ open, onClose, files, categories }: PdfImportMo
           const transactions = await parseStatement(
             importFile.file,
             categories,
-            { apiKey, proxyUrl, model },
+            {
+              provider: providerId,
+              apiKey: apiKey || "",
+              model: model || PROVIDER_DEFAULTS[providerId],
+              baseUrl: baseUrl || "",
+            },
             (progress) => {
               if (!isCurrent()) return;
               setState((prev) => {

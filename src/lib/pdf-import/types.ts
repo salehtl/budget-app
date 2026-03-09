@@ -1,4 +1,4 @@
-import type { ImportErrorCode } from "./anthropic-client.ts";
+import type { ImportErrorCode } from "./errors.ts";
 import type { ParseProgress } from "./parse-statement.ts";
 
 export interface ParsedTransaction {

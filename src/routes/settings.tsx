@@ -18,7 +18,14 @@ import {
 } from "../lib/fs-sync.ts";
 import { getSetting, setSetting } from "../db/queries/settings.ts";
 import { getSeedSQL } from "../db/seed.ts";
-import { AVAILABLE_MODELS, DEFAULT_MODEL } from "../lib/pdf-import/anthropic-client.ts";
+import type { ProviderId } from "../lib/pdf-import/llm-provider.ts";
+import {
+  DEFAULT_PROVIDER,
+  PROVIDER_MODELS,
+  PROVIDER_DEFAULTS,
+  PROVIDER_LABELS,
+  PROVIDER_KEY_PLACEHOLDERS,
+} from "../lib/pdf-import/providers/index.ts";
 import { emitDbEvent } from "../lib/db-events.ts";
 import { useTheme } from "../hooks/useTheme.ts";
 
@@ -312,112 +319,174 @@ function AppearanceSection() {
 
 // --- AI Integration section ---
 
+const PROVIDER_IDS: ProviderId[] = ["anthropic", "openai", "gemini", "custom"];
+
 function AIIntegrationSection() {
   const db = useDb();
   const { toast } = useToast();
+  const [provider, setProvider] = useState<ProviderId>(DEFAULT_PROVIDER);
   const [apiKey, setApiKey] = useState("");
-  const [proxyUrl, setProxyUrl] = useState("");
-  const [model, setModel] = useState(DEFAULT_MODEL);
-  const [savedKey, setSavedKey] = useState("");
-  const [savedProxy, setSavedProxy] = useState("");
-  const [savedModel, setSavedModel] = useState(DEFAULT_MODEL);
+  const [model, setModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [saved, setSaved] = useState({ provider: DEFAULT_PROVIDER, apiKey: "", model: "", baseUrl: "" });
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      getSetting(db, "anthropic_api_key"),
-      getSetting(db, "anthropic_proxy_url"),
-      getSetting(db, "anthropic_model"),
-    ]).then(([key, url, m]) => {
-      setApiKey(key ?? "");
-      setProxyUrl(url ?? "");
-      setModel(m || DEFAULT_MODEL);
-      setSavedKey(key ?? "");
-      setSavedProxy(url ?? "");
-      setSavedModel(m || DEFAULT_MODEL);
+    (async () => {
+      // Fetch new + old keys in one batch to avoid sequential round-trips on migration
+      const [p, key, m, url, oldKey, oldProxy, oldModel] = await Promise.all([
+        getSetting(db, "llm_provider"),
+        getSetting(db, "llm_api_key"),
+        getSetting(db, "llm_model"),
+        getSetting(db, "llm_base_url"),
+        getSetting(db, "anthropic_api_key"),
+        getSetting(db, "anthropic_proxy_url"),
+        getSetting(db, "anthropic_model"),
+      ]);
+
+      // Migration: if new keys don't exist but old anthropic keys do, migrate
+      if (!p && oldKey) {
+        const state = { provider: DEFAULT_PROVIDER, apiKey: oldKey, model: oldModel || "", baseUrl: oldProxy || "" };
+        setProvider(state.provider);
+        setApiKey(state.apiKey);
+        setModel(state.model);
+        setBaseUrl(state.baseUrl);
+        setSaved(state);
+        await Promise.all([
+          setSetting(db, "llm_provider", DEFAULT_PROVIDER),
+          setSetting(db, "llm_api_key", oldKey),
+          setSetting(db, "llm_model", state.model),
+          setSetting(db, "llm_base_url", state.baseUrl),
+        ]);
+        setLoaded(true);
+        return;
+      }
+
+      const state = {
+        provider: (p || DEFAULT_PROVIDER) as ProviderId,
+        apiKey: key ?? "",
+        model: m ?? "",
+        baseUrl: url ?? "",
+      };
+      setProvider(state.provider);
+      setApiKey(state.apiKey);
+      setModel(state.model);
+      setBaseUrl(state.baseUrl);
+      setSaved(state);
       setLoaded(true);
-    });
+    })();
   }, [db]);
 
-  const hasChanges = apiKey !== savedKey || proxyUrl !== savedProxy || model !== savedModel;
+  const hasChanges = provider !== saved.provider || apiKey !== saved.apiKey || model !== saved.model || baseUrl !== saved.baseUrl;
+  const models = PROVIDER_MODELS[provider];
+  const isCustom = provider === "custom";
+  const effectiveModel = model || PROVIDER_DEFAULTS[provider];
+
+  function handleProviderChange(newProvider: ProviderId) {
+    setProvider(newProvider);
+    setModel(PROVIDER_DEFAULTS[newProvider]);
+    setApiKey("");
+    setBaseUrl("");
+  }
 
   async function handleSave() {
-    if (apiKey !== savedKey) {
-      await setSetting(db, "anthropic_api_key", apiKey);
-      setSavedKey(apiKey);
-    }
-    if (proxyUrl !== savedProxy) {
-      await setSetting(db, "anthropic_proxy_url", proxyUrl);
-      setSavedProxy(proxyUrl);
-    }
-    if (model !== savedModel) {
-      await setSetting(db, "anthropic_model", model);
-      setSavedModel(model);
-    }
+    await Promise.all([
+      setSetting(db, "llm_provider", provider),
+      setSetting(db, "llm_api_key", apiKey),
+      setSetting(db, "llm_model", effectiveModel),
+      setSetting(db, "llm_base_url", baseUrl),
+    ]);
+    setSaved({ provider, apiKey, model: effectiveModel, baseUrl });
     toast("Settings saved");
   }
 
   if (!loaded) return null;
 
+  const providerName = PROVIDER_LABELS[provider];
+
   return (
     <section className="bg-surface rounded-xl border border-border p-4 mb-4">
       <h2 className="text-sm font-bold mb-3">AI Integration</h2>
       <p className="text-xs text-text-muted mb-3">
-        Used for PDF statement import. Your API key is stored locally and never sent to any server except Anthropic's API.
+        Used for PDF statement import. Your API key is stored locally{!isCustom && ` and never sent to any server except ${providerName}'s API`}.
       </p>
       <div className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-text-muted mb-1">
-            Anthropic API Key
+            Provider
+          </label>
+          <select
+            value={provider}
+            onChange={(e) => handleProviderChange(e.target.value as ProviderId)}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent cursor-pointer"
+          >
+            {PROVIDER_IDS.map((id) => (
+              <option key={id} value={id}>{PROVIDER_LABELS[id]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-text-muted mb-1">
+            API Key
           </label>
           <Input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-ant-..."
+            placeholder={PROVIDER_KEY_PLACEHOLDERS[provider]}
           />
         </div>
         <div>
           <label className="block text-xs font-medium text-text-muted mb-1">
             Model
           </label>
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent cursor-pointer"
-          >
-            {AVAILABLE_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} — {m.description}
-              </option>
-            ))}
-          </select>
+          {isCustom ? (
+            <Input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="e.g. llama3.2-vision"
+            />
+          ) : (
+            <select
+              value={effectiveModel}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent cursor-pointer"
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label} — {m.description}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-text-muted mb-1">
-            Proxy URL
+            Base URL
           </label>
           <Input
-            value={proxyUrl}
-            onChange={(e) => setProxyUrl(e.target.value)}
-            placeholder="https://api.anthropic.com (default)"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={isCustom ? "http://localhost:11434/v1 (required)" : "Optional — leave empty for default"}
           />
           <p className="text-[10px] text-text-light mt-1">
-            Optional. Only set this if you use a custom proxy. Leave empty to call Anthropic directly.
+            {isCustom
+              ? "Required. The OpenAI-compatible API endpoint of your self-hosted model."
+              : "Optional. Only set this if you use a custom proxy."}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={handleSave} disabled={!hasChanges}>
             Save
           </Button>
-          {savedKey && (
+          {saved.apiKey && (
             <Button
               variant="danger"
               size="sm"
               onClick={async () => {
-                await setSetting(db, "anthropic_api_key", "");
+                await setSetting(db, "llm_api_key", "");
                 setApiKey("");
-                setSavedKey("");
+                setSaved((s) => ({ ...s, apiKey: "" }));
                 toast("API key cleared");
               }}
             >

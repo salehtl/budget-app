@@ -2,7 +2,10 @@ import type { Category } from "../../types/database.ts";
 import type { ParsedTransaction } from "./types.ts";
 import type { PageImage } from "./pdf-to-images.ts";
 import { pdfToImages } from "./pdf-to-images.ts";
-import { callClaudeStreaming, ImportError, type AnthropicConfig } from "./anthropic-client.ts";
+import { ImportError } from "./errors.ts";
+import { extractStreamedObjects } from "./stream-parser.ts";
+import { getProvider } from "./providers/index.ts";
+import type { LLMConfig } from "./llm-provider.ts";
 
 const PAGES_PER_BATCH = 5;
 const MAX_CONCURRENT = 3;
@@ -73,7 +76,7 @@ function rawToTransaction(item: any): ParsedTransaction {
 export async function parseStatement(
   file: File,
   categories: Category[],
-  config: AnthropicConfig,
+  config: LLMConfig,
   onProgress?: (progress: ParseProgress) => void,
   onTransaction?: (txn: ParsedTransaction) => void,
 ): Promise<ParsedTransaction[]> {
@@ -114,8 +117,9 @@ export async function parseStatement(
     fileName: file.name,
   });
 
-  // Step 2: Batch pages and call Claude in parallel with streaming
+  // Step 2: Batch pages and call LLM in parallel with streaming
   const systemPrompt = buildSystemPrompt(categories);
+  const provider = getProvider(config.provider);
   const allTransactions: ParsedTransaction[] = [];
   const categoryMap = buildCategoryMap(categories);
 
@@ -137,25 +141,35 @@ export async function parseStatement(
 
   // Process batches with controlled concurrency
   async function processBatch(batch: PageImage[]) {
-    const imageContents = batch.map((img) => ({
-      type: "image" as const,
-      source: {
-        type: "base64" as const,
-        media_type: "image/png" as const,
-        data: img.base64,
-      },
-    }));
-
     const batchTxns: ParsedTransaction[] = [];
+    let parseOffset = 0;
+    let accumulated = "";
 
-    await callClaudeStreaming(config, systemPrompt, imageContents, (obj) => {
-      const txn = rawToTransaction(obj);
-      txn.category_id = txn.category
-        ? (categoryMap.get(txn.category.toLowerCase()) ?? null)
-        : null;
-      batchTxns.push(txn);
-      onTransaction?.(txn);
-    });
+    const result = await provider.stream(
+      config,
+      systemPrompt,
+      batch.map((img) => img.base64),
+      (chunk) => {
+        accumulated += chunk;
+        parseOffset = extractStreamedObjects(accumulated, parseOffset, (obj) => {
+          const txn = rawToTransaction(obj);
+          txn.category_id = txn.category
+            ? (categoryMap.get(txn.category.toLowerCase()) ?? null)
+            : null;
+          batchTxns.push(txn);
+          onTransaction?.(txn);
+        });
+      },
+    );
+
+    if (!result.trim()) {
+      throw new ImportError(
+        "parse_error",
+        "Empty Response",
+        "The AI returned an empty response.",
+        "Try again — this is usually a transient issue.",
+      );
+    }
 
     batchesDone++;
     onProgress?.({
