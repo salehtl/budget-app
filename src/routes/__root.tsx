@@ -26,7 +26,7 @@ function AppShell() {
   return (
     <div className="flex min-h-screen">
       <Sidebar settingsBadge={hasNew} />
-      <main className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 pb-22 md:pb-6">
+      <main className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 pb-safe md:pb-6">
         <div className="max-w-5xl mx-auto">
           <Outlet />
         </div>
