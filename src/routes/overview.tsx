@@ -10,10 +10,12 @@ import { CashflowChart } from "../components/cashflow/CashflowChart.tsx";
 import { MultiMonthView } from "../components/cashflow/MultiMonthView.tsx";
 import { useDb } from "../context/DbContext.tsx";
 import { getTransactionsForRange } from "../db/queries/cashflow.ts";
+import { getCategories } from "../db/queries/categories.ts";
 import { getSetting, setSetting } from "../db/queries/settings.ts";
 import { onDbEvent } from "../lib/db-events.ts";
 import { formatCurrency } from "../lib/format.ts";
 import type { TransactionWithCategory } from "../db/queries/transactions.ts";
+import type { Category } from "../types/database.ts";
 
 export const Route = createFileRoute("/overview")({
   component: OverviewPage,
@@ -155,8 +157,16 @@ interface SummaryViewProps {
 }
 
 function SummaryView({ transactions, priorTransactions, monthData }: SummaryViewProps) {
+  const db = useDb();
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  useEffect(() => {
+    getCategories(db).then(setCategories);
+    return onDbEvent("categories-changed", () => getCategories(db).then(setCategories));
+  }, [db]);
+
   const kpis = useMemo(() => computeKpis(transactions, priorTransactions, monthData.months.length), [transactions, priorTransactions, monthData.months.length]);
-  const categoryBreakdown = useMemo(() => buildCategoryBreakdown(transactions), [transactions]);
+  const categoryBreakdown = useMemo(() => buildCategoryBreakdown(transactions, categories), [transactions, categories]);
   const chartData = useMemo(() => buildChartData(monthData), [monthData]);
 
   return (
@@ -167,7 +177,7 @@ function SummaryView({ transactions, priorTransactions, monthData }: SummaryView
           label="Savings Rate"
           value={kpis.savingsRate !== null ? `${kpis.savingsRate.toFixed(1)}%` : "—"}
           trend={kpis.savingsRateTrend}
-          valueColor={kpis.savingsRate !== null && kpis.savingsRate >= 0 ? "text-success" : "text-danger"}
+          valueColor={kpis.savingsRate !== null ? (kpis.savingsRate >= 0 ? "text-success" : "text-danger") : "text-text-muted"}
         />
         <KpiCard
           label="Avg Monthly Spend"
@@ -299,8 +309,9 @@ interface KpiCardProps {
 }
 
 function KpiCard({ label, value, subtitle, trend, invertTrend, valueColor, dotColor }: KpiCardProps) {
+  const showTrend = trend && trend.pct !== 0;
   const trendUp = trend && trend.pct > 0;
-  const trendColor = trend
+  const trendColor = showTrend
     ? (invertTrend ? (trendUp ? "text-danger" : "text-success") : (trendUp ? "text-success" : "text-danger"))
     : undefined;
 
@@ -315,7 +326,7 @@ function KpiCard({ label, value, subtitle, trend, invertTrend, valueColor, dotCo
         {subtitle && (
           <span className="text-[10px] sm:text-[11px] text-text-light truncate">{subtitle}</span>
         )}
-        {trend && (
+        {showTrend && (
           <span className={`text-[10px] sm:text-[11px] font-medium ${trendColor} flex items-center gap-0.5`}>
             {trendUp ? "↑" : "↓"} {Math.abs(trend.pct).toFixed(1)}%
           </span>
@@ -445,17 +456,34 @@ function computeKpis(
   };
 }
 
-function buildCategoryBreakdown(transactions: TransactionWithCategory[]) {
+function buildCategoryBreakdown(transactions: TransactionWithCategory[], categories: Category[]) {
+  // Build lookup maps for parent resolution
+  const catById = new Map<string, Category>();
+  for (const c of categories) catById.set(c.id, c);
+
   const catMap = new Map<string, { name: string; color: string; value: number }>();
   for (const t of transactions) {
     if (t.type !== "expense") continue;
-    // Group by parent category name for cleaner grouping
-    const key = t.category_name ?? "Uncategorized";
-    const existing = catMap.get(key);
+    // Group by parent category ID for cleaner grouping
+    let groupId = t.category_id ?? "__none__";
+    let groupName = t.category_name ?? "Uncategorized";
+    let groupColor = t.category_color ?? "#64748b";
+    if (t.category_id) {
+      const cat = catById.get(t.category_id);
+      if (cat?.parent_id) {
+        const parent = catById.get(cat.parent_id);
+        if (parent) {
+          groupId = parent.id;
+          groupName = parent.name;
+          groupColor = parent.color;
+        }
+      }
+    }
+    const existing = catMap.get(groupId);
     if (existing) {
       existing.value += t.amount;
     } else {
-      catMap.set(key, { name: key, color: t.category_color ?? "#64748b", value: t.amount });
+      catMap.set(groupId, { name: groupName, color: groupColor, value: t.amount });
     }
   }
 
