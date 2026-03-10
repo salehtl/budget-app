@@ -86,7 +86,6 @@ export function useCashflow(month: string, groupBy: GroupBy = "none") {
           next_occurrence: txn.date,
           mode: "auto",
         });
-        emitDbEvent("recurring-changed");
       }
 
       await createTransaction(db, {
@@ -102,6 +101,7 @@ export function useCashflow(month: string, groupBy: GroupBy = "none") {
         recurring_id: recurringId,
       });
       emitDbEvent("transactions-changed");
+      if (recurringId) emitDbEvent("recurring-changed");
       return id;
     },
     [db]

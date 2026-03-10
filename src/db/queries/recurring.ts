@@ -306,31 +306,26 @@ export async function populateFutureMonth(
   const lastDay = new Date(y, m, 0).getDate();
   const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
 
-  // Prefetch all recurring_ids that already have transactions this month
-  const { rows: existingRows } = await db.exec<{ recurring_id: string }>(
-    `SELECT DISTINCT recurring_id FROM transactions WHERE recurring_id IS NOT NULL AND substr(date, 1, 7) = ?`,
-    [month]
-  );
-  const existingRuleIds = new Set(existingRows.map((r) => r.recurring_id));
-
   for (const rule of rules) {
-    if (existingRuleIds.has(rule.id)) continue;
-
     // Compute occurrence for this month
     const occ = computeOccurrenceForMonth(rule, monthStart, monthEnd);
     if (!occ) continue;
     if (rule.end_date && occ > rule.end_date) continue;
 
-    await createTransaction(db, {
-      id: crypto.randomUUID(),
-      amount: rule.amount,
-      type: rule.type,
-      category_id: rule.category_id,
-      date: occ,
-      payee: rule.payee,
-      notes: rule.notes,
-      recurring_id: rule.id,
-      status: "planned",
-    });
+    // Atomic insert: skip if any transaction already exists for this rule in this month.
+    // This avoids race conditions with processRecurringRules running concurrently.
+    const txnId = crypto.randomUUID();
+    await db.exec(
+      `INSERT INTO transactions (id, amount, type, category_id, date, payee, notes, recurring_id, status, group_name)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM transactions WHERE recurring_id = ? AND substr(date, 1, 7) = ?
+       )`,
+      [
+        txnId, rule.amount, rule.type, rule.category_id,
+        occ, rule.payee, rule.notes, rule.id, "planned", "",
+        rule.id, month,
+      ]
+    );
   }
 }
