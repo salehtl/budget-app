@@ -14,7 +14,7 @@ Personal finance PWA (YNAB-like). Local-first, no server dependency. Currency: A
 - **MINOR** — new features, non-breaking enhancements
 - **PATCH** — bug fixes, performance improvements, internal refactors
 
-Format: [Keep a Changelog](https://keepachangelog.com/) (`Added`, `Changed`, `Fixed`, `Removed` sections under each version). Unreleased changes go under `## [Unreleased]` until a version is cut.
+Format: [Keep a Changelog](https://keepachangelog.com/) (`Added`, `Changed`, `Fixed`, `Removed` sections under each version). Changes on master are considered released — assign a version immediately (don't use `[Unreleased]`).
 
 ## Stack
 
