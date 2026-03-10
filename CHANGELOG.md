@@ -12,10 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - JSON import now round-trips anchor_day and is_variable for recurring transactions
 - Snowball backup growth: pre-migration backup no longer nests previous backups
 - `normalizeImportData` wired into JSON import (was dead code)
+- `editStatus` type now includes "review" status for inline edit mode
 
 ### Changed
 - Extract shared constants (BACKUP_TABLES, ANCHOR_DAY_FREQUENCIES) to reduce duplication
-- Simplify recurring engine code: remove dead refs, deduplicate field resets, inline trivial wrappers
+- Hoist StatusPill config to module-level constant, simplify variant logic
+- Simplify reviewCount with loop instead of spread+flatMap+filter
+- Clean up recurring scheduler in DbContext (flatten nested conditions, early returns)
+- Simplify useCashflow auto-confirm and populateFutureMonth logic
+- Inline trivial wrappers in recurring form and hooks
+- Deduplicate field reset logic in cashflow inline-add row
+- Updated PWA icons, OG image, and added twitter card
+
+### Removed
+- Dead `StatusPill.tsx` from cashflow/ (already extracted to ui/)
+- Non-functional Review scroll button and unused firstReviewRef
 
 ## [2.2.0] - 2026-03-10
 
