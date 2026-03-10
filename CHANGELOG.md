@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.3] - 2026-03-10
+
+### Fixed
+- Cashflow date cell: clicking prev/next month arrows in the calendar popup no longer immediately closes the popup (click was bubbling to the row handler which cleared editing state)
+- Cashflow frequency cell: same click-propagation fix for the frequency dropdown
+- Cashflow frequency cell: selecting "None" on a recurring transaction now correctly stops the recurrence (previously silently did nothing)
+
 ## [2.3.2] - 2026-03-10
 
 ### Fixed

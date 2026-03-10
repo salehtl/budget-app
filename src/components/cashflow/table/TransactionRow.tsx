@@ -157,7 +157,14 @@ export const TransactionRow = memo(function TransactionRow({
           value={row.frequency}
           isEditing={editingCol === COLUMN_INDEX.frequency}
           onStartEdit={() => startEditCell(COLUMN_INDEX.frequency)}
-          onCommit={(v) => commitCell("frequency", v)}
+          onCommit={(v) => {
+            if (v === null && row.recurringId && onStopRecurrence) {
+              dispatch({ type: "COMMIT_CELL" });
+              onStopRecurrence(row.recurringId);
+            } else {
+              commitCell("frequency", v);
+            }
+          }}
           onCancel={cancelCell}
         />
 

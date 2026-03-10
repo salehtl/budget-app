@@ -47,6 +47,7 @@ export function DateCell({
           ref={popoverRef}
           className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-[60] rounded-xl border border-border bg-surface shadow-lg p-3 animate-slide-up"
           onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           <Calendar value={value} onChange={handleSelect} />
         </div>

@@ -56,6 +56,7 @@ export function FrequencyCell({
           ref={popoverRef}
           className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-[60] min-w-[120px] rounded-lg border border-border bg-surface shadow-lg py-1 animate-slide-up"
           onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           {!required && (
             <button
