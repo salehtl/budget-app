@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Uncategorized filter toggle in PDF import review modal
 - Portal-rendered category dropdown in review table (escapes overflow clipping)
 - Model name shown in modal title during PDF import
+- PWA update prompt — shows refresh banner when a new version is available
+- Periodic SW update checks (every 15min) and on app foreground (with 5min cooldown)
+- "Check for Updates" button in Settings
+- Rate-limit docs link in RateLimitedView modal
+- Rate-limit notices in file queue and streaming progress views
+- Semver changelog policy in CLAUDE.md
+
+### Changed
+- Adaptive rate-limit backoff: exponential backoff with jitter (2s→4s→8s→16s, capped 30s) replaces fixed 2s delay
+- Up to 4 attempts per batch before surfacing rate-limit error (was 2)
+- 1s inter-batch delay smooths token consumption to avoid API bursts
+- Privacy notice now provider-agnostic (was hardcoded to Anthropic)
 
 ### Fixed
 - Partial rate-limit failure silently skipping batches in PDF import
