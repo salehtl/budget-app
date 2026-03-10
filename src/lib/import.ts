@@ -22,6 +22,8 @@ export async function importRecurringJSON(db: DbClient, jsonString: string): Pro
     throw new Error("Invalid recurring backup — no recurring_transactions found");
   }
 
+  // Disable FK checks — imported category_ids may not exist in this DB yet
+  await db.exec("PRAGMA foreign_keys = OFF;");
   await db.exec("BEGIN TRANSACTION;");
   try {
     let count = 0;
@@ -63,6 +65,8 @@ export async function importRecurringJSON(db: DbClient, jsonString: string): Pro
   } catch (e) {
     await db.exec("ROLLBACK;");
     throw e;
+  } finally {
+    await db.exec("PRAGMA foreign_keys = ON;");
   }
 }
 
