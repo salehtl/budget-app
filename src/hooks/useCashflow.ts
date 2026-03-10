@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useDb } from "../context/DbContext.tsx";
 import { getTransactionsForMonth } from "../db/queries/cashflow.ts";
 import { createTransaction, updateTransaction, deleteTransaction } from "../db/queries/transactions.ts";
-import { autoPopulateFutureTransactions, createRecurring } from "../db/queries/recurring.ts";
+import { populateFutureMonth, createRecurring } from "../db/queries/recurring.ts";
 import { buildCashflowRows, type CashflowGroup, type CashflowSummary, type GroupBy } from "../lib/cashflow.ts";
 import { emitDbEvent, onDbEvent } from "../lib/db-events.ts";
 import type { TransactionWithCategory } from "../db/queries/transactions.ts";
@@ -22,7 +22,7 @@ export function useCashflow(month: string, groupBy: GroupBy = "none") {
 
   const refresh = useCallback(async () => {
     // Auto-populate planned transactions from recurring rules
-    await autoPopulateFutureTransactions(db, month);
+    await populateFutureMonth(db, month);
 
     const txns = await getTransactionsForMonth(db, month);
     setTransactions(txns);

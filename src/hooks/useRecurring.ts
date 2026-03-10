@@ -5,11 +5,10 @@ import {
   createRecurring,
   updateRecurring,
   deleteRecurring,
-  getDueRecurring,
+  processRecurringRules,
 } from "../db/queries/recurring.ts";
-import { createTransaction } from "../db/queries/transactions.ts";
 import { emitDbEvent, onDbEvent } from "../lib/db-events.ts";
-import { getNextOccurrence } from "../lib/recurring.ts";
+import { formatLocalDate } from "../lib/recurring.ts";
 import type { RecurringTransaction } from "../types/database.ts";
 
 export function useRecurring() {
@@ -48,6 +47,16 @@ export function useRecurring() {
         next_occurrence: rec.start_date,
       });
       emitDbEvent("recurring-changed");
+
+      // If the rule starts in the past, run scheduler to catch up
+      const today = formatLocalDate(new Date());
+      if (rec.start_date <= today) {
+        const count = await processRecurringRules(db, today);
+        if (count > 0) {
+          emitDbEvent("transactions-changed");
+        }
+      }
+
       return id;
     },
     [db]
@@ -80,46 +89,5 @@ export function useRecurring() {
     [db]
   );
 
-  const processDue = useCallback(async () => {
-    const today = new Date().toISOString().split("T")[0]!;
-    const due = await getDueRecurring(db, today);
-
-    for (const rec of due) {
-      if (rec.mode === "auto") {
-        await createTransaction(db, {
-          id: crypto.randomUUID(),
-          amount: rec.amount,
-          type: rec.type,
-          category_id: rec.category_id,
-          date: rec.next_occurrence,
-          payee: rec.payee,
-          notes: rec.notes,
-          recurring_id: rec.id,
-          status: "confirmed",
-        });
-      }
-
-      const next = getNextOccurrence(
-        rec.next_occurrence,
-        rec.frequency,
-        null,
-        rec.custom_interval_days
-      );
-
-      if (rec.end_date && next > rec.end_date) {
-        await updateRecurring(db, rec.id, { is_active: false });
-      } else {
-        await updateRecurring(db, rec.id, { next_occurrence: next });
-      }
-    }
-
-    if (due.length > 0) {
-      emitDbEvent("transactions-changed");
-      emitDbEvent("recurring-changed");
-    }
-
-    return due;
-  }, [db]);
-
-  return { items, loading, add, update, remove, stopRecurrence, processDue, refresh };
+  return { items, loading, add, update, remove, stopRecurrence, refresh };
 }

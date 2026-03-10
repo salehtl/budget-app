@@ -1,5 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { DbClient } from "../db/client.ts";
+import { processRecurringRules } from "../db/queries/recurring.ts";
+import { formatLocalDate } from "../lib/recurring.ts";
+import { emitDbEvent } from "../lib/db-events.ts";
 
 const DbContext = createContext<DbClient | null>(null);
 
@@ -8,6 +11,7 @@ const client = new DbClient();
 export function DbProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [schedulerRan, setSchedulerRan] = useState(false);
 
   useEffect(() => {
     client
@@ -15,6 +19,18 @@ export function DbProvider({ children }: { children: ReactNode }) {
       .then(() => setReady(true))
       .catch((e) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    if (!ready || schedulerRan) return;
+    setSchedulerRan(true);
+    const today = formatLocalDate(new Date());
+    processRecurringRules(client, today).then((count) => {
+      if (count > 0) {
+        emitDbEvent("transactions-changed");
+        emitDbEvent("recurring-changed");
+      }
+    });
+  }, [ready, schedulerRan]);
 
   if (error) {
     return (
