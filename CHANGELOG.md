@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Uncategorized filter toggle in PDF import review modal
+- Portal-rendered category dropdown in review table (escapes overflow clipping)
+- Model name shown in modal title during PDF import
+
 ### Fixed
 - Partial rate-limit failure silently skipping batches in PDF import
+- Streaming UX restored: transactions appear one-by-one during import instead of in bulk
+- Select-all checkbox now scopes to active filter (file or uncategorized)
+- Portal dropdown positioning: clamps to viewport edges and flips upward near bottom
 
 ## [2.1.0] - 2026-03-09
 
