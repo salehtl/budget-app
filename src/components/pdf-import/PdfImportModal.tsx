@@ -36,6 +36,7 @@ export function PdfImportModal({ open, onClose, files, categories }: PdfImportMo
   const txnQueueRef = useRef<ParsedTransaction[]>([]);
   const drainTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const filesRef = useRef<ImportFile[]>([]);
+  const [modelLabel, setModelLabel] = useState("");
 
   const isSingleFile = files.length === 1;
 
@@ -116,6 +117,8 @@ export function PdfImportModal({ open, onClose, files, categories }: PdfImportMo
       if (!isCurrent()) return;
 
       const providerId = (provider || DEFAULT_PROVIDER) as ProviderId;
+      const resolvedModel = model || PROVIDER_DEFAULTS[providerId];
+      setModelLabel(getModelLabel(providerId, resolvedModel));
       const needsKey = providerId !== "custom";
 
       if (needsKey && !apiKey) {
@@ -283,13 +286,15 @@ export function PdfImportModal({ open, onClose, files, categories }: PdfImportMo
   }
 
   const fileCount = files.length;
+  const modelSuffix = modelLabel && (state.step === "processing" || state.step === "streaming")
+    ? ` · ${modelLabel}` : "";
   const title =
     state.step === "file-queue"
       ? `Import ${fileCount} Statement${fileCount !== 1 ? "s" : ""}`
       : state.step === "processing"
-        ? "Importing Statement" + (fileCount > 1 ? "s" : "")
+        ? "Importing Statement" + (fileCount > 1 ? "s" : "") + modelSuffix
         : state.step === "streaming"
-          ? "Analyzing Statement" + (fileCount > 1 ? "s" : "")
+          ? "Analyzing Statement" + (fileCount > 1 ? "s" : "") + modelSuffix
           : state.step === "rate-limited"
             ? "Rate Limited"
             : state.step === "reviewing" || state.step === "importing"

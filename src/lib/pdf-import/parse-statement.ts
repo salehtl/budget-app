@@ -147,9 +147,13 @@ export async function parseStatement(
     totalBatches,
   });
 
-  // Process a single batch. Returns transactions but does NOT call onTransaction —
-  // callers emit only after confirming the batch succeeded (avoids duplicates on retry).
-  async function processBatch(batch: PageImage[]) {
+  // Tracks how many transactions have already been streamed to the UI.
+  // On retry, we skip re-emitting these to avoid duplicates.
+  let emittedCount = 0;
+
+  // Process a single batch, streaming each transaction to the UI as it's parsed.
+  // skipEmit: number of transactions already emitted (for retry dedup).
+  async function processBatch(batch: PageImage[], skipEmit = 0) {
     const batchTxns: ParsedTransaction[] = [];
     let parseOffset = 0;
     let accumulated = "";
@@ -174,6 +178,9 @@ export async function parseStatement(
             ? (categoryMap.get(txn.category.toLowerCase()) ?? null)
             : null;
           batchTxns.push(txn);
+          if (batchTxns.length > skipEmit) {
+            onTransaction?.(txn);
+          }
         });
       },
     );
@@ -190,9 +197,9 @@ export async function parseStatement(
     return batchTxns;
   }
 
-  function emitBatch(txns: ParsedTransaction[]) {
+  function commitBatch(txns: ParsedTransaction[]) {
     allTransactions.push(...txns);
-    for (const txn of txns) onTransaction?.(txn);
+    emittedCount += txns.length;
     batchesDone++;
     onProgress?.({
       message: batchesDone < totalBatches
@@ -217,13 +224,14 @@ export async function parseStatement(
   while (i < batches.length) {
     if (!rateLimited) {
       const chunk = batches.slice(i, i + maxConcurrent);
-      const settled = await Promise.allSettled(chunk.map(processBatch));
+      const emittedBefore = emittedCount;
+      const settled = await Promise.allSettled(chunk.map((b) => processBatch(b)));
       let failedIndices: number[] | undefined;
 
       for (let j = 0; j < settled.length; j++) {
         const r = settled[j];
         if (r.status === "fulfilled") {
-          emitBatch(r.value);
+          commitBatch(r.value);
         } else if (
           r.reason instanceof ImportError &&
           (r.reason.code === "rate_limited" || r.reason.code === "api_error")
@@ -238,14 +246,22 @@ export async function parseStatement(
 
       if (failedIndices) {
         rateLimited = true;
+        // Track how many txns were already streamed to the UI by the failed
+        // batches before they errored, so retries can skip re-emitting them.
+        const partiallyEmitted = emittedCount - emittedBefore;
         const failed = failedIndices.map((j) => chunk[j]);
         batches.splice(i, 0, ...failed);
+        // Store skip counts on the batch arrays for the sequential retry path
+        for (const fb of failed) (fb as any).__skipEmit = partiallyEmitted;
         await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
       }
     } else {
       // Sequential path with backoff between all batches
+      const batch = batches[i];
+      const skipEmit = (batch as any).__skipEmit ?? 0;
+      delete (batch as any).__skipEmit;
       try {
-        emitBatch(await processBatch(batches[i]));
+        commitBatch(await processBatch(batch, skipEmit));
       } catch (e) {
         if (
           e instanceof ImportError &&
@@ -254,7 +270,7 @@ export async function parseStatement(
           await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
           // Retry once; if still rate-limited, signal fallback to UI
           try {
-            emitBatch(await processBatch(batches[i]));
+            commitBatch(await processBatch(batch, skipEmit));
           } catch (retryErr) {
             if (
               retryErr instanceof ImportError &&

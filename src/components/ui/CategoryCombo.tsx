@@ -99,17 +99,25 @@ export function CategoryCombo({
   }, [open, activeIndex]);
 
   // Portal positioning: track trigger rect for fixed-position dropdown
-  const [portalPos, setPortalPos] = useState<{ top: number; left: number } | null>(null);
+  const [portalPos, setPortalPos] = useState<{ top: number; left: number; flipUp: boolean } | null>(null);
 
   useLayoutEffect(() => {
     if (!portal || !open || !ref.current) return;
+    const DROPDOWN_W = 192; // w-48 = 12rem = 192px
+    const DROPDOWN_H = 192; // max-h-48 = 12rem = 192px
+    const EDGE_PAD = 8;
     let rafId = 0;
     function update() {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         if (!ref.current) return;
         const rect = ref.current.getBoundingClientRect();
-        setPortalPos({ top: rect.bottom + 4, left: rect.left + rect.width / 2 });
+        const centerX = rect.left + rect.width / 2;
+        const minLeft = DROPDOWN_W / 2 + EDGE_PAD;
+        const maxLeft = window.innerWidth - DROPDOWN_W / 2 - EDGE_PAD;
+        const flipUp = rect.bottom + DROPDOWN_H + EDGE_PAD > window.innerHeight;
+        const top = flipUp ? rect.top - 4 : rect.bottom + 4;
+        setPortalPos({ top, left: Math.max(minLeft, Math.min(maxLeft, centerX)), flipUp });
       });
     }
     update();
@@ -280,7 +288,11 @@ export function CategoryCombo({
       : "absolute left-1/2 -translate-x-1/2 top-full mt-1 z-[60] w-48 max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg py-1 animate-slide-up";
 
   const portalStyle = portal && portalPos
-    ? { top: portalPos.top, left: portalPos.left, transform: "translateX(-50%)" } as React.CSSProperties
+    ? {
+        left: portalPos.left,
+        transform: portalPos.flipUp ? "translate(-50%, -100%)" : "translateX(-50%)",
+        ...(portalPos.flipUp ? { top: portalPos.top } : { top: portalPos.top }),
+      } as React.CSSProperties
     : undefined;
 
   const dropdownEl = (
