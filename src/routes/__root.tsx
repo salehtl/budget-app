@@ -5,6 +5,7 @@ import { Sidebar, MobileNav } from "../components/layout/Sidebar.tsx";
 import { AdminPanel } from "../components/AdminPanel.tsx";
 import { Onboarding } from "../components/Onboarding.tsx";
 import { useChangelog } from "../hooks/useChangelog.ts";
+import { PwaUpdater } from "../components/PwaUpdater.tsx";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -34,6 +35,7 @@ function AppShell() {
       <MobileNav settingsBadge={hasNew} />
       <AdminPanel />
       <Onboarding />
+      <PwaUpdater />
     </div>
   );
 }
