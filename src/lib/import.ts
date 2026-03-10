@@ -1,4 +1,5 @@
 import type { DbClient } from "../db/client.ts";
+import { normalizeImportData } from "./export.ts";
 
 interface BackupData {
   version: number;
@@ -10,7 +11,7 @@ interface BackupData {
 }
 
 export async function importJSON(db: DbClient, jsonString: string): Promise<void> {
-  const data: BackupData = JSON.parse(jsonString);
+  const data: BackupData = normalizeImportData(JSON.parse(jsonString));
 
   if (!data.version || !data.categories || !data.transactions) {
     throw new Error("Invalid backup file format");
@@ -71,8 +72,8 @@ export async function importJSON(db: DbClient, jsonString: string): Promise<void
     // Import recurring
     for (const rec of data.recurring_transactions ?? []) {
       await db.exec(
-        `INSERT INTO recurring_transactions (id, amount, type, category_id, payee, notes, frequency, custom_interval_days, start_date, end_date, next_occurrence, mode, is_active, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO recurring_transactions (id, amount, type, category_id, payee, notes, frequency, custom_interval_days, start_date, end_date, next_occurrence, mode, is_active, anchor_day, is_variable, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           rec.id,
           rec.amount,
@@ -87,6 +88,8 @@ export async function importJSON(db: DbClient, jsonString: string): Promise<void
           rec.next_occurrence,
           rec.mode ?? "reminder",
           rec.is_active ?? 1,
+          rec.anchor_day ?? null,
+          rec.is_variable ?? 0,
           rec.created_at ?? new Date().toISOString(),
           rec.updated_at ?? new Date().toISOString(),
         ]

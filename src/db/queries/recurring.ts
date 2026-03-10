@@ -1,6 +1,7 @@
 import type { DbClient } from "../client.ts";
 import type { RecurringTransaction } from "../../types/database.ts";
 import { getNextOccurrence, formatLocalDate } from "../../lib/recurring.ts";
+import { ANCHOR_DAY_FREQUENCIES } from "../schema.ts";
 import { createTransaction } from "./transactions.ts";
 
 export async function getRecurringTransactions(
@@ -33,7 +34,7 @@ export async function createRecurring(
 ): Promise<void> {
   // Auto-compute anchor_day for month-based frequencies if not explicitly provided
   const anchorDay = rec.anchor_day ??
-    (["monthly", "quarterly", "yearly"].includes(rec.frequency)
+    ((ANCHOR_DAY_FREQUENCIES as readonly string[]).includes(rec.frequency)
       ? parseInt(rec.start_date.slice(8, 10), 10)
       : null);
 

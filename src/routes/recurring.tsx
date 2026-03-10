@@ -489,10 +489,6 @@ function RecurringForm({
     isIncome ? c.is_income : !c.is_income
   );
 
-  async function handleCreateCategoryInForm(name: string): Promise<string> {
-    return onCreateCategory(name, isIncome);
-  }
-
   useEffect(() => {
     requestAnimationFrame(() => payeeRef.current?.focus());
   }, []);
@@ -582,7 +578,7 @@ function RecurringForm({
               onChange={setCategoryId}
               categories={filteredCategories}
               variant="form"
-              onCreateCategory={handleCreateCategoryInForm}
+              onCreateCategory={(name) => onCreateCategory(name, isIncome)}
             />
           </div>
         </div>
