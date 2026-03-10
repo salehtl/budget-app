@@ -202,45 +202,57 @@ export async function parseStatement(
 
   const maxConcurrent = options?.maxConcurrent ?? MAX_CONCURRENT;
 
-  // Run batches with max concurrency, with rate-limit retry at reduced concurrency
+  // Run batches with max concurrency, with rate-limit retry at reduced concurrency.
+  // Uses a while loop with manual index to avoid stepping bugs when concurrency changes.
   const results: ParsedTransaction[][] = [];
   let concurrency = maxConcurrent;
+  let i = 0;
 
-  for (let i = 0; i < batches.length; i += concurrency) {
-    const chunk = batches.slice(i, i + concurrency);
-    try {
-      const chunkResults = await Promise.all(chunk.map(processBatch));
-      results.push(...chunkResults);
-    } catch (e) {
-      // If rate limited and we haven't already reduced concurrency, retry this chunk sequentially
-      if (
-        e instanceof ImportError &&
-        (e.code === "rate_limited" || e.code === "api_error") &&
-        concurrency > 1
-      ) {
-        concurrency = 1;
-        // Retry failed chunk one batch at a time
-        for (const batch of chunk) {
-          try {
-            const result = await processBatch(batch);
-            results.push(result);
-          } catch (retryErr) {
-            if (
-              retryErr instanceof ImportError &&
-              (retryErr.code === "rate_limited" || retryErr.code === "api_error")
-            ) {
-              // Still rate limited even at concurrency 1 — signal fallback
-              throw new ImportError(
-                "rate_limited_with_fallback",
-                "Rate Limited",
-                retryErr.message,
-                retryErr.suggestion,
-              );
-            }
-            throw retryErr;
-          }
+  while (i < batches.length) {
+    if (concurrency > 1) {
+      // Parallel path: run a chunk of batches concurrently
+      const chunk = batches.slice(i, i + concurrency);
+      try {
+        const chunkResults = await Promise.all(chunk.map(processBatch));
+        results.push(...chunkResults);
+        i += chunk.length;
+      } catch (e) {
+        if (
+          e instanceof ImportError &&
+          (e.code === "rate_limited" || e.code === "api_error")
+        ) {
+          // Drop to sequential — do NOT retry this chunk (parallel batches already
+          // fired onTransaction callbacks for any that completed before the failure,
+          // so re-running them would cause duplicates in the streaming UI).
+          // Instead, just continue from where we are with concurrency 1.
+          concurrency = 1;
+          // Advance past the chunk that partially ran — some batches in it may have
+          // succeeded (their txns are in the drip queue already) and some failed.
+          // Accepting partial loss of the failed batch(es) is better than duplicating.
+          i += chunk.length;
+        } else {
+          throw e;
         }
-      } else {
+      }
+    } else {
+      // Sequential path (concurrency = 1): one batch at a time
+      try {
+        const result = await processBatch(batches[i]);
+        results.push(result);
+        i++;
+      } catch (e) {
+        if (
+          e instanceof ImportError &&
+          (e.code === "rate_limited" || e.code === "api_error")
+        ) {
+          // Still rate limited at concurrency 1 — signal fallback to UI
+          throw new ImportError(
+            "rate_limited_with_fallback",
+            "Rate Limited",
+            e.message,
+            e.suggestion,
+          );
+        }
         throw e;
       }
     }
