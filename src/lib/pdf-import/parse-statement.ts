@@ -210,30 +210,24 @@ export async function parseStatement(
 
   while (i < batches.length) {
     if (concurrency > 1) {
-      // Parallel path: run a chunk of batches concurrently
+      // Parallel path: use allSettled to keep successful results even if one batch fails
       const chunk = batches.slice(i, i + concurrency);
-      try {
-        const chunkResults = await Promise.all(chunk.map(processBatch));
-        results.push(...chunkResults);
-        i += chunk.length;
-      } catch (e) {
-        if (
-          e instanceof ImportError &&
-          (e.code === "rate_limited" || e.code === "api_error")
+      const settled = await Promise.allSettled(chunk.map(processBatch));
+      let hadRateLimit = false;
+      for (const r of settled) {
+        if (r.status === "fulfilled") {
+          results.push(r.value);
+        } else if (
+          r.reason instanceof ImportError &&
+          (r.reason.code === "rate_limited" || r.reason.code === "api_error")
         ) {
-          // Drop to sequential — do NOT retry this chunk (parallel batches already
-          // fired onTransaction callbacks for any that completed before the failure,
-          // so re-running them would cause duplicates in the streaming UI).
-          // Instead, just continue from where we are with concurrency 1.
-          concurrency = 1;
-          // Advance past the chunk that partially ran — some batches in it may have
-          // succeeded (their txns are in the drip queue already) and some failed.
-          // Accepting partial loss of the failed batch(es) is better than duplicating.
-          i += chunk.length;
-        } else {
-          throw e;
+          hadRateLimit = true;
+        } else if (r.reason) {
+          throw r.reason;
         }
       }
+      if (hadRateLimit) concurrency = 1;
+      i += chunk.length;
     } else {
       // Sequential path (concurrency = 1): one batch at a time
       try {

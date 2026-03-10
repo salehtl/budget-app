@@ -343,7 +343,9 @@ export function PdfImportModal({ open, onClose, files, categories }: PdfImportMo
           provider={state.provider}
           onSwitchModel={() => {
             if (!state.fallbackModel) return;
+            const rid = runIdRef.current;
             setSetting(db, "llm_model", state.fallbackModel).then(() => {
+              if (rid !== runIdRef.current) return;
               toast(`Switched to ${getModelLabel(state.provider, state.fallbackModel)}`);
               setState({ step: "idle" });
             });
@@ -920,17 +922,6 @@ const ERROR_CONFIG: Record<string, {
     settingsLink: false,
   },
   rate_limited: {
-    icon: (
-      <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-      </svg>
-    ),
-    color: "warning",
-    retryable: true,
-    settingsLink: false,
-  },
-  rate_limited_with_fallback: {
     icon: (
       <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />

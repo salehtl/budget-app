@@ -26,6 +26,7 @@ import {
   PROVIDER_LABELS,
   PROVIDER_KEY_PLACEHOLDERS,
   PROVIDER_RATE_LIMIT_URLS,
+  getModelLabel,
 } from "../lib/pdf-import/providers/index.ts";
 import { emitDbEvent } from "../lib/db-events.ts";
 import { useTheme } from "../hooks/useTheme.ts";
@@ -494,14 +495,14 @@ function AIIntegrationSection() {
               ))}
             </select>
           )}
-          {!isCustom && (
+          {provider !== "custom" && (
             <a
-              href={PROVIDER_RATE_LIMIT_URLS[provider as Exclude<ProviderId, "custom">]}
+              href={PROVIDER_RATE_LIMIT_URLS[provider]}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline mt-1"
             >
-              View {providerName} rate limits for {models.find(m => m.id === effectiveModel)?.label ?? effectiveModel}
+              View {providerName} rate limits for {getModelLabel(provider, effectiveModel)}
               <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                 <polyline points="15 3 21 3 21 9" />
