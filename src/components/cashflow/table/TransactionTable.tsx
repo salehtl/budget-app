@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import type { CashflowGroup, CashflowRow } from "../../../lib/cashflow.ts";
 import type { Category } from "../../../types/database.ts";
 import type { SingleMonthViewProps } from "../SingleMonthView.tsx";
@@ -8,7 +8,6 @@ import { useTableKeyboard } from "./useTableKeyboard.ts";
 import { createActions } from "./actions.ts";
 import { GroupBlock } from "./GroupBlock.tsx";
 import { InlineAddRow } from "./InlineAddRow.tsx";
-import { BulkActionBar } from "./BulkActionBar.tsx";
 import { formatCurrency } from "../../../lib/format.ts";
 
 interface TransactionTableProps {
@@ -25,6 +24,8 @@ interface TransactionTableProps {
   onAddRow: SingleMonthViewProps["onAddRow"];
   onDuplicateRow?: SingleMonthViewProps["onDuplicateRow"];
   onCreateCategory?: SingleMonthViewProps["onCreateCategory"];
+  onSelectionChange?: (ids: Set<string>) => void;
+  clearSelectionSignal?: number;
 }
 
 export function TransactionTable({
@@ -41,6 +42,8 @@ export function TransactionTable({
   onAddRow,
   onDuplicateRow,
   onCreateCategory,
+  onSelectionChange,
+  clearSelectionSignal,
 }: TransactionTableProps) {
   const { state, dispatch, hasSelection } = useTableState();
 
@@ -92,6 +95,18 @@ export function TransactionTable({
     getRow,
     onDuplicateRow,
   });
+
+  // Notify parent of selection changes
+  useEffect(() => {
+    onSelectionChange?.(state.selectedIds);
+  }, [state.selectedIds, onSelectionChange]);
+
+  // Clear selection when parent requests it
+  useEffect(() => {
+    if (clearSelectionSignal) {
+      dispatch({ type: "CLEAR_SELECTION" });
+    }
+  }, [clearSelectionSignal, dispatch]);
 
   // Stable callback for onCreateCategory wrapper passed to GroupBlock
   const handleCreateCategory = useCallback(
@@ -184,17 +199,6 @@ export function TransactionTable({
         />
       </div>
 
-      {/* Bulk action bar */}
-      {hasSelection && (
-        <BulkActionBar
-          selectedIds={state.selectedIds}
-          categories={filteredCategories}
-          onDelete={(ids) => { for (const id of ids) onDeleteRow(id); }}
-          onChangeStatus={(ids, status) => { for (const id of ids) onToggleStatus(id, status); }}
-          onChangeCategory={(ids, catId) => { for (const id of ids) onEditRow(id, { category_id: catId }); }}
-          onClearSelection={() => dispatch({ type: "CLEAR_SELECTION" })}
-        />
-      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useDb } from "../context/DbContext.tsx";
 import { getTransactionsForMonth } from "../db/queries/cashflow.ts";
-import { createTransaction, updateTransaction, deleteTransaction } from "../db/queries/transactions.ts";
+import { createTransaction, updateTransaction, deleteTransaction, deleteTransactionsBatch, updateTransactionsBatch } from "../db/queries/transactions.ts";
 import { populateFutureMonth, createRecurring, updateRecurring } from "../db/queries/recurring.ts";
 import { buildCashflowRows, type CashflowGroup, type CashflowSummary, type GroupBy } from "../lib/cashflow.ts";
 import { emitDbEvent, onDbEvent } from "../lib/db-events.ts";
@@ -147,6 +147,22 @@ export function useCashflow(month: string, groupBy: GroupBy = "none") {
     [db]
   );
 
+  const removeTransactions = useCallback(
+    async (ids: string[]) => {
+      await deleteTransactionsBatch(db, ids);
+      emitDbEvent("transactions-changed");
+    },
+    [db]
+  );
+
+  const bulkEditTransactions = useCallback(
+    async (ids: string[], updates: { status?: "planned" | "confirmed"; category_id?: string | null }) => {
+      await updateTransactionsBatch(db, ids, updates);
+      emitDbEvent("transactions-changed");
+    },
+    [db]
+  );
+
   return {
     transactions,
     incomeGroups,
@@ -157,5 +173,7 @@ export function useCashflow(month: string, groupBy: GroupBy = "none") {
     addTransaction,
     editTransaction,
     removeTransaction,
+    removeTransactions,
+    bulkEditTransactions,
   };
 }

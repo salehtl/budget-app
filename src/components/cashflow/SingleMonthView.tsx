@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
 import type { CashflowGroup, CashflowRow, CashflowSummary } from "../../lib/cashflow.ts";
 import type { Category, RecurringTransaction } from "../../types/database.ts";
 import { SummaryStrip } from "./SummaryStrip.tsx";
 import { ReviewBanner } from "./ReviewBanner.tsx";
 import { TransactionTable } from "./table/TransactionTable.tsx";
+import { BulkActionBar } from "./table/BulkActionBar.tsx";
+import { ConfirmDialog } from "../ui/ConfirmDialog.tsx";
 
 export interface SingleMonthViewProps {
   incomeGroups: CashflowGroup[];
@@ -31,6 +33,8 @@ export interface SingleMonthViewProps {
   }) => void | Promise<void>;
   onDuplicateRow?: (row: CashflowRow) => void;
   onCreateCategory?: (name: string, isIncome: boolean) => Promise<string>;
+  onBulkDeleteRows: (ids: string[]) => void | Promise<void>;
+  onBulkEditRows: (ids: string[], updates: { status?: "planned" | "confirmed"; category_id?: string | null }) => void | Promise<void>;
 }
 
 export function SingleMonthView({
@@ -46,7 +50,40 @@ export function SingleMonthView({
   onAddRow,
   onDuplicateRow,
   onCreateCategory,
+  onBulkDeleteRows,
+  onBulkEditRows,
 }: SingleMonthViewProps) {
+  const [incomeSelectedIds, setIncomeSelectedIds] = useState<Set<string>>(new Set());
+  const [expenseSelectedIds, setExpenseSelectedIds] = useState<Set<string>>(new Set());
+  const [clearIncomeSig, setClearIncomeSig] = useState(0);
+  const [clearExpenseSig, setClearExpenseSig] = useState(0);
+  const [bulkDeletePending, setBulkDeletePending] = useState<string[]>([]);
+
+  const hasIncomeSelection = incomeSelectedIds.size > 0;
+  const hasExpenseSelection = expenseSelectedIds.size > 0;
+  const hasAnySelection = hasIncomeSelection || hasExpenseSelection;
+  const isMixed = hasIncomeSelection && hasExpenseSelection;
+
+  const allSelectedIds = useMemo(
+    () => new Set([...incomeSelectedIds, ...expenseSelectedIds]),
+    [incomeSelectedIds, expenseSelectedIds]
+  );
+
+  // When mixed, hide Category (income/expense categories are not interchangeable)
+  const bulkCategories = useMemo(() => {
+    if (isMixed) return undefined;
+    const isIncome = hasIncomeSelection;
+    return (categories ?? []).filter((c) => (isIncome ? c.is_income : !c.is_income));
+  }, [isMixed, hasIncomeSelection, categories]);
+
+  const handleIncomeSelection = useCallback((ids: Set<string>) => setIncomeSelectedIds(ids), []);
+  const handleExpenseSelection = useCallback((ids: Set<string>) => setExpenseSelectedIds(ids), []);
+
+  const handleClearSelection = useCallback(() => {
+    if (hasIncomeSelection) setClearIncomeSig((s) => s + 1);
+    if (hasExpenseSelection) setClearExpenseSig((s) => s + 1);
+  }, [hasIncomeSelection, hasExpenseSelection]);
+
   const reviewCount = useMemo(() => {
     let count = 0;
     for (const group of incomeGroups)
@@ -77,6 +114,8 @@ export function SingleMonthView({
         onAddRow={onAddRow}
         onDuplicateRow={onDuplicateRow}
         onCreateCategory={onCreateCategory}
+        onSelectionChange={handleIncomeSelection}
+        clearSelectionSignal={clearIncomeSig}
       />
 
       <TransactionTable
@@ -93,6 +132,33 @@ export function SingleMonthView({
         onAddRow={onAddRow}
         onDuplicateRow={onDuplicateRow}
         onCreateCategory={onCreateCategory}
+        onSelectionChange={handleExpenseSelection}
+        clearSelectionSignal={clearExpenseSig}
+      />
+
+      {hasAnySelection && (
+        <BulkActionBar
+          selectedIds={allSelectedIds}
+          categories={bulkCategories}
+          onDelete={(ids) => setBulkDeletePending(ids)}
+          onChangeStatus={(ids, status) => { void onBulkEditRows(ids, { status }); handleClearSelection(); }}
+          onChangeCategory={(ids, catId) => { void onBulkEditRows(ids, { category_id: catId }); handleClearSelection(); }}
+          onClearSelection={handleClearSelection}
+        />
+      )}
+
+      <ConfirmDialog
+        open={bulkDeletePending.length > 0}
+        onClose={() => setBulkDeletePending([])}
+        onConfirm={async () => {
+          await onBulkDeleteRows(bulkDeletePending);
+          setBulkDeletePending([]);
+          handleClearSelection();
+        }}
+        title={`Delete ${bulkDeletePending.length} Transaction${bulkDeletePending.length !== 1 ? "s" : ""}`}
+        message={`Delete ${bulkDeletePending.length} transaction${bulkDeletePending.length !== 1 ? "s" : ""}? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
       />
     </div>
   );

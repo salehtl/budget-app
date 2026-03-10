@@ -52,6 +52,8 @@ function CashflowPage() {
     addTransaction,
     editTransaction,
     removeTransaction,
+    removeTransactions,
+    bulkEditTransactions,
   } = useCashflow(month, groupBy);
 
   return (
@@ -134,6 +136,13 @@ function CashflowPage() {
               group_name: row.groupName,
             });
             toast("Transaction duplicated");
+          }}
+          onBulkDeleteRows={async (ids) => {
+            await removeTransactions(ids);
+            toast(`${ids.length} transaction${ids.length !== 1 ? "s" : ""} deleted`);
+          }}
+          onBulkEditRows={async (ids, updates) => {
+            await bulkEditTransactions(ids, updates);
           }}
         />
       )}

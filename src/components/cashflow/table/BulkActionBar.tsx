@@ -3,7 +3,7 @@ import type { Category } from "../../../types/database.ts";
 
 interface BulkActionBarProps {
   selectedIds: Set<string>;
-  categories: Category[];
+  categories?: Category[];
   onDelete: (ids: string[]) => void;
   onChangeStatus: (ids: string[], status: "planned" | "confirmed") => void;
   onChangeCategory: (ids: string[], categoryId: string | null) => void;
@@ -58,35 +58,37 @@ export function BulkActionBar({
           )}
         </div>
 
-        {/* Category dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => { setShowCategoryMenu(!showCategoryMenu); setShowStatusMenu(false); }}
-            className="text-xs font-medium text-text-muted hover:text-text px-2 py-1 rounded hover:bg-surface-alt transition-colors cursor-pointer"
-          >
-            Category
-          </button>
-          {showCategoryMenu && (
-            <div className="absolute bottom-full left-0 mb-1 z-[60] min-w-[160px] max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg py-1">
-              <button
-                onClick={() => { onChangeCategory(ids, null); setShowCategoryMenu(false); onClearSelection(); }}
-                className="w-full text-left px-3 py-1.5 text-xs text-text-light italic hover:bg-surface-alt cursor-pointer"
-              >
-                None
-              </button>
-              {categories.map((c) => (
+        {/* Category dropdown — hidden when categories is undefined (e.g. mixed income+expense selection) */}
+        {categories !== undefined && (
+          <div className="relative">
+            <button
+              onClick={() => { setShowCategoryMenu(!showCategoryMenu); setShowStatusMenu(false); }}
+              className="text-xs font-medium text-text-muted hover:text-text px-2 py-1 rounded hover:bg-surface-alt transition-colors cursor-pointer"
+            >
+              Category
+            </button>
+            {showCategoryMenu && (
+              <div className="absolute bottom-full left-0 mb-1 z-[60] min-w-[160px] max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg py-1">
                 <button
-                  key={c.id}
-                  onClick={() => { onChangeCategory(ids, c.id); setShowCategoryMenu(false); onClearSelection(); }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt cursor-pointer flex items-center gap-1.5"
+                  onClick={() => { onChangeCategory(ids, null); setShowCategoryMenu(false); onClearSelection(); }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-text-light italic hover:bg-surface-alt cursor-pointer"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                  <span className="truncate">{c.name}</span>
+                  None
                 </button>
-              ))}
-            </div>
-          )}
-        </div>
+                {categories.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => { onChangeCategory(ids, c.id); setShowCategoryMenu(false); onClearSelection(); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Delete */}
         <button

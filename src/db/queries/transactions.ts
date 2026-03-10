@@ -109,3 +109,29 @@ export async function deleteTransaction(
   await db.exec("DELETE FROM transactions WHERE id = ?", [id]);
 }
 
+export async function deleteTransactionsBatch(
+  db: DbClient,
+  ids: string[]
+): Promise<void> {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => "?").join(",");
+  await db.exec(`DELETE FROM transactions WHERE id IN (${placeholders})`, ids);
+}
+
+export async function updateTransactionsBatch(
+  db: DbClient,
+  ids: string[],
+  updates: { status?: "planned" | "confirmed"; category_id?: string | null }
+): Promise<void> {
+  if (ids.length === 0) return;
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  if (updates.status !== undefined) { sets.push("status = ?"); params.push(updates.status); }
+  if (updates.category_id !== undefined) { sets.push("category_id = ?"); params.push(updates.category_id); }
+  if (sets.length === 0) return;
+  sets.push(SET_UPDATED_AT);
+  const placeholders = ids.map(() => "?").join(",");
+  params.push(...ids);
+  await db.exec(`UPDATE transactions SET ${sets.join(", ")} WHERE id IN (${placeholders})`, params);
+}
+

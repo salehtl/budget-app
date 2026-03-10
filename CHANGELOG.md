@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.2] - 2026-03-10
+
+### Fixed
+- Cashflow bulk delete now correctly deletes all selected transactions (previously only the last one was deleted)
+- Cashflow bulk actions bar is now unified across income and expense tables — selecting from both tables no longer shows two overlapping action bars
+- Cashflow bulk actions: Category is hidden when income and expense transactions are mixed (categories are type-specific)
+- Escape key now clears selection even when the header checkbox has focus (previously only worked with keyboard-driven selection)
+- Bulk delete, status, and category changes now issue a single batched SQL query and emit one refresh event instead of N sequential operations
+
 ## [2.3.1] - 2026-03-10
 
 ### Fixed

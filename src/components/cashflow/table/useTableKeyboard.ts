@@ -33,6 +33,17 @@ export function useTableKeyboard({ state, dispatch, orderedRowIds, actions, colu
       // If an editor is open, let it handle its own keys
       if (editingCell) return;
 
+      // Escape clears selection or focus even when an input (e.g. header checkbox) has focus
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (selectedIds.size > 0) {
+          dispatch({ type: "CLEAR_SELECTION" });
+        } else if (focusedRowId) {
+          dispatch({ type: "CLEAR_FOCUS" });
+        }
+        return;
+      }
+
       // Don't intercept if target is an input/textarea/select
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -91,15 +102,6 @@ export function useTableKeyboard({ state, dispatch, orderedRowIds, actions, colu
           if (focusedRowId) {
             const col = focusedCol ?? defaultEditCol ?? COLUMN_INDEX.payee;
             dispatch({ type: "EDIT_CELL", rowId: focusedRowId, col });
-          }
-          return;
-        }
-        case "Escape": {
-          e.preventDefault();
-          if (selectedIds.size > 0) {
-            dispatch({ type: "CLEAR_SELECTION" });
-          } else if (focusedRowId) {
-            dispatch({ type: "CLEAR_FOCUS" });
           }
           return;
         }
