@@ -45,6 +45,13 @@ export const PROVIDER_KEY_PLACEHOLDERS: Record<ProviderId, string> = {
   custom: "Optional",
 };
 
+/** Links to each provider's rate limit documentation. */
+export const PROVIDER_RATE_LIMIT_URLS: Record<Exclude<ProviderId, "custom">, string> = {
+  anthropic: "https://docs.anthropic.com/en/docs/about-claude/models",
+  openai: "https://platform.openai.com/docs/guides/rate-limits",
+  gemini: "https://ai.google.dev/gemini-api/docs/rate-limits",
+};
+
 export { ANTHROPIC_MODELS, ANTHROPIC_DEFAULT_MODEL } from "./anthropic.ts";
 export { OPENAI_MODELS, OPENAI_DEFAULT_MODEL } from "./openai.ts";
 export { GEMINI_MODELS, GEMINI_DEFAULT_MODEL } from "./gemini.ts";
