@@ -11,8 +11,6 @@ export interface TestDb {
 
 export function createTestDb(): TestDb {
   const raw = new Database(":memory:");
-  raw.pragma("journal_mode = WAL");
-
   // Disable foreign keys during schema creation because CREATE_TABLES
   // defines `transactions` (which references `recurring_transactions`)
   // before `recurring_transactions` exists.

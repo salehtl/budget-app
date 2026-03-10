@@ -74,15 +74,20 @@ describe("formatMonth", () => {
 });
 
 describe("getCurrentMonth", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns a string in YYYY-MM format", () => {
     const result = getCurrentMonth();
     expect(result).toMatch(/^\d{4}-\d{2}$/);
   });
 
-  it("matches the current date", () => {
-    const now = new Date();
-    const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    expect(getCurrentMonth()).toBe(expected);
+  it("returns the correct month for a pinned date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00Z"));
+    expect(getCurrentMonth()).toBe("2026-03");
+    vi.useRealTimers();
   });
 });
 
@@ -107,14 +112,19 @@ describe("getNextMonth", () => {
 });
 
 describe("getToday", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns a string in YYYY-MM-DD format", () => {
     const result = getToday();
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("matches the current date", () => {
-    const now = new Date();
-    const expected = now.toISOString().split("T")[0];
-    expect(getToday()).toBe(expected);
+  it("returns the correct date for a pinned time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-15T12:00:00Z"));
+    expect(getToday()).toBe("2026-03-15");
+    vi.useRealTimers();
   });
 });

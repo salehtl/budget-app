@@ -1,4 +1,3 @@
-import { describe, it, expect, vi } from "vitest";
 import { extractStreamedObjects } from "./stream-parser";
 
 describe("extractStreamedObjects", () => {
