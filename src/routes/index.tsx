@@ -141,6 +141,19 @@ function CashflowPage() {
                 return;
               }
             }
+            // category_id edits on recurring instances silently update the rule + all future planned instances
+            if ("category_id" in updates) {
+              const { rows: catRows } = await db.exec<{ recurring_id: string | null }>(
+                "SELECT recurring_id FROM transactions WHERE id = ?",
+                [id]
+              );
+              const recurringId = catRows[0]?.recurring_id;
+              if (recurringId) {
+                await editRecurringInstance(id, recurringId, "category_id", updates.category_id, "all");
+                toast("Updated");
+                return;
+              }
+            }
             await editTransaction(id, updates);
             toast("Updated");
           }}

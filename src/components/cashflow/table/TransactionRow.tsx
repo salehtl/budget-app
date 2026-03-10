@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import type { CashflowRow } from "../../../lib/cashflow.ts";
-import type { Category } from "../../../types/database.ts";
+import type { Category, RecurringTransaction } from "../../../types/database.ts";
 import type { TableAction } from "./types.ts";
 import { GRID_COLS, COLUMN_INDEX, FREQUENCIES } from "./types.ts";
 import { PayeeCell } from "./cells/PayeeCell.tsx";
@@ -26,8 +26,8 @@ interface TransactionRowProps {
   onDeleteRow: (id: string) => void;
   onDuplicateRow?: (row: CashflowRow) => void;
   onStopRecurrence?: (recurringId: string) => void;
-  onAttachRecurrence?: (txnId: string, row: CashflowRow, frequency: import("../../../types/database.ts").RecurringTransaction["frequency"]) => void;
-  onUpdateRecurringFrequency?: (recurringId: string, frequency: import("../../../types/database.ts").RecurringTransaction["frequency"]) => void;
+  onAttachRecurrence?: (txnId: string, row: CashflowRow, frequency: RecurringTransaction["frequency"]) => void;
+  onUpdateRecurringFrequency?: (recurringId: string, frequency: RecurringTransaction["frequency"]) => void;
   onCreateCategory?: (name: string) => Promise<string>;
 }
 
@@ -171,12 +171,12 @@ export const TransactionRow = memo(function TransactionRow({
             } else if (row.recurringId) {
               // Already has a rule — change frequency
               if (onUpdateRecurringFrequency) {
-                onUpdateRecurringFrequency(row.recurringId, v as import("../../../types/database.ts").RecurringTransaction["frequency"]);
+                onUpdateRecurringFrequency(row.recurringId, v as RecurringTransaction["frequency"]);
               }
             } else {
               // One-time transaction — attach a new rule
               if (onAttachRecurrence) {
-                onAttachRecurrence(row.id, row, v as import("../../../types/database.ts").RecurringTransaction["frequency"]);
+                onAttachRecurrence(row.id, row, v as RecurringTransaction["frequency"]);
               }
             }
           }}

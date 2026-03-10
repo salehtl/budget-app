@@ -7,7 +7,6 @@ import { useRecurring } from "../hooks/useRecurring.ts";
 import { useCategories } from "../hooks/useCategories.ts";
 import { formatCurrency } from "../lib/format.ts";
 import { RecurringTable } from "../components/recurring/table/RecurringTable.tsx";
-import { emitDbEvent } from "../lib/db-events.ts";
 
 export const Route = createFileRoute("/recurring")({
   component: RecurringPage,
@@ -47,7 +46,6 @@ function RecurringPage() {
     is_variable?: boolean;
   }) => {
     await add(data);
-    emitDbEvent("transactions-changed");
     toast("Recurring rule created");
   }, [add, toast]);
 
@@ -152,7 +150,6 @@ function RecurringPage() {
         onConfirm={async () => {
           if (deleteId) {
             await remove(deleteId);
-            emitDbEvent("transactions-changed");
             toast("Rule deleted");
           }
         }}

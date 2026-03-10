@@ -12,7 +12,6 @@ import {
   updateFutureInstancesOfRule,
 } from "../db/queries/transactions.ts";
 import { emitDbEvent, onDbEvent } from "../lib/db-events.ts";
-import { formatLocalDate } from "../lib/recurring.ts";
 import { getToday } from "../lib/format.ts";
 import type { RecurringTransaction } from "../types/database.ts";
 
@@ -56,7 +55,7 @@ export function useRecurring() {
       emitDbEvent("recurring-changed");
 
       // If the rule starts in the past or today, run scheduler to catch up
-      const today = formatLocalDate(new Date());
+      const today = getToday();
       if (rec.start_date <= today) {
         const count = await processRecurringRuleById(db, id, today);
         if (count > 0) {
@@ -84,6 +83,7 @@ export function useRecurring() {
     async (id: string) => {
       await deleteRecurring(db, id);
       emitDbEvent("recurring-changed");
+      emitDbEvent("transactions-changed");
     },
     [db]
   );
