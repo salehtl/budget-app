@@ -102,6 +102,7 @@ export function useRecurring() {
       const next = getNextOccurrence(
         rec.next_occurrence,
         rec.frequency,
+        null,
         rec.custom_interval_days
       );
 

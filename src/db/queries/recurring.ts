@@ -150,7 +150,7 @@ export async function autoPopulateFutureTransactions(
     let occ = rec.start_date;
     // Advance to this month
     while (occ < monthStart) {
-      occ = getNextOccurrence(occ, rec.frequency, rec.custom_interval_days);
+      occ = getNextOccurrence(occ, rec.frequency, null, rec.custom_interval_days);
       if (rec.end_date && occ > rec.end_date) break;
     }
 
