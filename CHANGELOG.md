@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - **Stop recurrence now purges future instances**: Stopping a recurrence (via Recur → None or Actions → Stop recurrence) now also deletes all future `planned` and `review` instances, not just deactivates the rule
+- **Category edits on recurring cashflow rows propagate to rule and future instances**: Previously only updated the single instance
 - Editing frequency or start/end date on the Recurring page now deletes stale future instances and regenerates them under the correct new schedule
 - Editing Payee, Amount, or Category on the Recurring page now syncs all future planned/review instances automatically (no prompt needed on the Recurring page — changes are always authoritative)
+- Deleting a recurring rule now triggers a cashflow refresh so transactions that lost their `recurring_id` link are reflected immediately
 - `updateTransaction` now supports updating `recurring_id` (needed to link a transaction to a newly created rule)
 
 ## [2.3.3] - 2026-03-10
