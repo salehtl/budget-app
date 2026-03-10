@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS categories (
@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS recurring_transactions (
   next_occurrence TEXT NOT NULL,
   mode TEXT NOT NULL DEFAULT 'reminder' CHECK (mode IN ('reminder', 'auto')),
   is_active INTEGER NOT NULL DEFAULT 1,
+  anchor_day INTEGER,
+  is_variable INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -113,5 +115,12 @@ INSERT INTO transactions (id, amount, type, category_id, date, payee, notes, rec
     label, '', recurring_id, 'planned', group_name
   FROM cashflow_items;
 DROP TABLE IF EXISTS cashflow_items;
+`,
+  3: `
+ALTER TABLE recurring_transactions ADD COLUMN anchor_day INTEGER;
+ALTER TABLE recurring_transactions ADD COLUMN is_variable INTEGER NOT NULL DEFAULT 0;
+UPDATE recurring_transactions
+  SET anchor_day = CAST(substr(start_date, 9, 2) AS INTEGER)
+  WHERE frequency IN ('monthly', 'quarterly', 'yearly');
 `,
 };
