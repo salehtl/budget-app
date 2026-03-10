@@ -7,14 +7,13 @@ import { useRecurring } from "../hooks/useRecurring.ts";
 import { useCategories } from "../hooks/useCategories.ts";
 import { formatCurrency } from "../lib/format.ts";
 import { RecurringTable } from "../components/recurring/table/RecurringTable.tsx";
-import { emitDbEvent } from "../lib/db-events.ts";
 
 export const Route = createFileRoute("/recurring")({
   component: RecurringPage,
 });
 
 function RecurringPage() {
-  const { items, loading, add, update, remove, stopRecurrence } = useRecurring();
+  const { items, loading, add, remove, stopRecurrence, resumeRecurrence, updateRuleAndSync } = useRecurring();
   const { categories, add: addCategory } = useCategories();
   const { toast } = useToast();
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -47,15 +46,13 @@ function RecurringPage() {
     is_variable?: boolean;
   }) => {
     await add(data);
-    emitDbEvent("transactions-changed");
     toast("Recurring rule created");
   }, [add, toast]);
 
   const handleEditField = useCallback(async (id: string, updates: Record<string, unknown>) => {
-    await update(id, updates);
-    emitDbEvent("transactions-changed");
+    await updateRuleAndSync(id, updates);
     toast("Rule updated");
-  }, [update, toast]);
+  }, [updateRuleAndSync, toast]);
 
   const handleToggleActive = useCallback(async (id: string) => {
     const item = items.find((r) => r.id === id);
@@ -64,10 +61,10 @@ function RecurringPage() {
       await stopRecurrence(id);
       toast("Recurring rule paused");
     } else {
-      await update(id, { is_active: true });
+      await resumeRecurrence(id);
       toast("Recurring rule resumed");
     }
-  }, [items, stopRecurrence, update, toast]);
+  }, [items, stopRecurrence, resumeRecurrence, toast]);
 
   const handleDelete = useCallback((id: string) => {
     setDeleteId(id);
@@ -153,7 +150,6 @@ function RecurringPage() {
         onConfirm={async () => {
           if (deleteId) {
             await remove(deleteId);
-            emitDbEvent("transactions-changed");
             toast("Rule deleted");
           }
         }}
