@@ -288,11 +288,7 @@ export function CategoryCombo({
       : "absolute left-1/2 -translate-x-1/2 top-full mt-1 z-[60] w-48 max-h-48 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg py-1 animate-slide-up";
 
   const portalStyle = portal && portalPos
-    ? {
-        left: portalPos.left,
-        transform: portalPos.flipUp ? "translate(-50%, -100%)" : "translateX(-50%)",
-        ...(portalPos.flipUp ? { top: portalPos.top } : { top: portalPos.top }),
-      } as React.CSSProperties
+    ? { top: portalPos.top, left: portalPos.left, transform: portalPos.flipUp ? "translate(-50%, -100%)" : "translateX(-50%)" } as React.CSSProperties
     : undefined;
 
   const dropdownEl = (
