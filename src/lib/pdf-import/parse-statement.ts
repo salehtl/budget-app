@@ -10,6 +10,7 @@ import type { LLMConfig } from "./llm-provider.ts";
 const PAGES_PER_BATCH = 5;
 const MAX_CONCURRENT = 3;
 const MAX_BUFFER_BYTES = 1024 * 1024; // 1 MB — safety cap on accumulated LLM response
+const RATE_LIMIT_BACKOFF_MS = 2000;
 
 export interface ParseProgress {
   message: string;
@@ -134,6 +135,7 @@ export async function parseStatement(
     batches.push(images.slice(i, i + PAGES_PER_BATCH));
   }
 
+  const totalBatches = batches.length;
   let batchesDone = 0;
 
   onProgress?.({
@@ -142,10 +144,11 @@ export async function parseStatement(
     pageCount: images.length,
     fileName: file.name,
     batch: 0,
-    totalBatches: batches.length,
+    totalBatches,
   });
 
-  // Process batches with controlled concurrency
+  // Process a single batch. Returns transactions but does NOT call onTransaction —
+  // callers emit only after confirming the batch succeeded (avoids duplicates on retry).
   async function processBatch(batch: PageImage[]) {
     const batchTxns: ParsedTransaction[] = [];
     let parseOffset = 0;
@@ -171,7 +174,6 @@ export async function parseStatement(
             ? (categoryMap.get(txn.category.toLowerCase()) ?? null)
             : null;
           batchTxns.push(txn);
-          onTransaction?.(txn);
         });
       },
     );
@@ -185,75 +187,97 @@ export async function parseStatement(
       );
     }
 
+    return batchTxns;
+  }
+
+  function emitBatch(txns: ParsedTransaction[]) {
+    allTransactions.push(...txns);
+    for (const txn of txns) onTransaction?.(txn);
     batchesDone++;
     onProgress?.({
-      message: batchesDone < batches.length
-        ? `Analyzed ${batchesDone} of ${batches.length} batches...`
+      message: batchesDone < totalBatches
+        ? `Analyzed ${batchesDone} of ${totalBatches} batches...`
         : "Finishing up...",
       phase: "analyzing",
       pageCount: images.length,
       fileName: file.name,
       batch: batchesDone,
-      totalBatches: batches.length,
+      totalBatches,
     });
-
-    return batchTxns;
   }
 
   const maxConcurrent = options?.maxConcurrent ?? MAX_CONCURRENT;
 
-  // Run batches with max concurrency, with rate-limit retry at reduced concurrency.
-  // Uses a while loop with manual index to avoid stepping bugs when concurrency changes.
-  const results: ParsedTransaction[][] = [];
-  let concurrency = maxConcurrent;
+  // Run batches with controlled concurrency, re-queuing rate-limited failures.
+  // On rate-limit, failed batches are spliced back into the queue and
+  // processing drops to sequential for the remainder of the import.
+  let rateLimited = false;
   let i = 0;
 
   while (i < batches.length) {
-    if (concurrency > 1) {
-      // Parallel path: use allSettled to keep successful results even if one batch fails
-      const chunk = batches.slice(i, i + concurrency);
+    if (!rateLimited) {
+      const chunk = batches.slice(i, i + maxConcurrent);
       const settled = await Promise.allSettled(chunk.map(processBatch));
-      let hadRateLimit = false;
-      for (const r of settled) {
+      let failedIndices: number[] | undefined;
+
+      for (let j = 0; j < settled.length; j++) {
+        const r = settled[j];
         if (r.status === "fulfilled") {
-          results.push(r.value);
+          emitBatch(r.value);
         } else if (
           r.reason instanceof ImportError &&
           (r.reason.code === "rate_limited" || r.reason.code === "api_error")
         ) {
-          hadRateLimit = true;
-        } else if (r.reason) {
+          (failedIndices ??= []).push(j);
+        } else {
           throw r.reason;
         }
       }
-      if (hadRateLimit) concurrency = 1;
+
       i += chunk.length;
+
+      if (failedIndices) {
+        rateLimited = true;
+        const failed = failedIndices.map((j) => chunk[j]);
+        batches.splice(i, 0, ...failed);
+        await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
+      }
     } else {
-      // Sequential path (concurrency = 1): one batch at a time
+      // Sequential path with backoff between all batches
       try {
-        const result = await processBatch(batches[i]);
-        results.push(result);
-        i++;
+        emitBatch(await processBatch(batches[i]));
       } catch (e) {
         if (
           e instanceof ImportError &&
           (e.code === "rate_limited" || e.code === "api_error")
         ) {
-          // Still rate limited at concurrency 1 — signal fallback to UI
-          throw new ImportError(
-            "rate_limited_with_fallback",
-            "Rate Limited",
-            e.message,
-            e.suggestion,
-          );
+          await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
+          // Retry once; if still rate-limited, signal fallback to UI
+          try {
+            emitBatch(await processBatch(batches[i]));
+          } catch (retryErr) {
+            if (
+              retryErr instanceof ImportError &&
+              (retryErr.code === "rate_limited" || retryErr.code === "api_error")
+            ) {
+              throw new ImportError(
+                "rate_limited_with_fallback",
+                "Rate Limited",
+                retryErr.message,
+                retryErr.suggestion,
+              );
+            }
+            throw retryErr;
+          }
+        } else {
+          throw e;
         }
-        throw e;
+      }
+      i++;
+      if (i < batches.length) {
+        await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
       }
     }
-  }
-
-  for (const batch of results) {
-    allTransactions.push(...batch);
   }
 
   // Step 3: Deduplicate (category IDs already resolved during streaming)
