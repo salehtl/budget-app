@@ -8,7 +8,7 @@ Personal finance PWA (YNAB-like). Local-first, no server dependency. Currency: A
 
 ## Changelog (IMPORTANT)
 
-**CHANGELOG.md MUST be kept up to date.** Every user-facing change — feature, fix, or breaking change — must have a corresponding entry before the work is considered complete. Follow [Semantic Versioning](https://semver.org/):
+**CHANGELOG.md MUST be updated before any push or merge to master.** Every user-facing change — feature, fix, or breaking change — must have a corresponding entry before the work is considered complete. Follow [Semantic Versioning](https://semver.org/):
 
 - **MAJOR** — incompatible changes (schema migrations that lose data, removed features)
 - **MINOR** — new features, non-breaking enhancements
