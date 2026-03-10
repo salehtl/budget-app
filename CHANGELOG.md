@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-03-10
+
+### Changed
+- Cashflow and Recurring pages now use Linear-inspired table UX: click-to-edit per cell, keyboard navigation (arrows, j/k, Enter, Escape, Tab), multi-select (checkboxes, shift-click, Cmd+A), and bulk actions
+- Cashflow page refactored from 920-line monolith into ~20 focused table components with shared infrastructure
+- Recurring page refactored from 689-line monolith into ~160-line orchestrator using shared table components
+- Table infrastructure (useTableState, useTableKeyboard, cell components) is now parameterizable and reusable across pages
+
+### Added
+- Recurring page: per-cell editing for payee, amount, frequency, category, start date, end date
+- Recurring page: keyboard shortcuts (d=delete, p=pause/resume, e=edit payee, c=edit category)
+- Recurring page: multi-select with bulk Pause/Resume, Category change, and Delete
+- Recurring page: inline add row with draft persistence to sessionStorage
+- EndDateCell component for nullable date fields (shows "Open", calendar + "Clear end date")
+- FrequencyCell `required` prop to hide "None" option (used by recurring)
+
+### Fixed
+- CategoryCombo input not receiving focus when dropdown opens via autoOpen or button click
+
 ## [2.2.3] - 2026-03-10
 
 ### Fixed

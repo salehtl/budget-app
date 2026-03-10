@@ -12,9 +12,7 @@ function findScrollParent(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-const inputBase = "bg-transparent outline-none transition-colors";
-const inputUnderline = "border-b border-accent/30 focus:border-accent";
-const inputUnderlineIdle = "border-b border-transparent focus:border-accent/40";
+import { inputBase, inputUnderline, inputUnderlineIdle } from "./input-styles.ts";
 
 interface CategoryComboProps {
   value: string;
@@ -26,6 +24,8 @@ interface CategoryComboProps {
   onCreateCategory?: (name: string) => Promise<string>;
   /** Render dropdown in a portal to escape overflow:hidden containers */
   portal?: boolean;
+  /** Open immediately on mount (for inline cell editing) */
+  autoOpen?: boolean;
 }
 
 export function CategoryCombo({
@@ -37,8 +37,9 @@ export function CategoryCombo({
   placeholder = "Category",
   onCreateCategory,
   portal = false,
+  autoOpen = false,
 }: CategoryComboProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
   const comboId = useId();
@@ -76,6 +77,13 @@ export function CategoryCombo({
   useEffect(() => {
     if (activeIndex >= options.length) setActiveIndex(options.length - 1);
   }, [options.length, activeIndex]);
+
+  // Auto-focus input when dropdown opens (covers autoOpen and openCombo)
+  useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [open]);
 
   // Close on outside click
   useEffect(() => {

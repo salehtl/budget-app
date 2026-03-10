@@ -90,20 +90,54 @@ Each hook calls `useDb()`, provides `{ data, loading, refresh, add, update, remo
 
 ### Cashflow Page (`src/components/cashflow/`)
 
-The main page. Income and Expense tables with inline add/edit rows sharing a 7-column proportional grid (`GRID_COLS` in `SingleMonthView.tsx` — `3fr_1.2fr_1.5fr_52px_1.5fr_56px_48px`):
+The main page. Income and Expense tables with click-to-edit cells, keyboard navigation, multi-select, and bulk actions.
 
-- **Columns:** Payee | Date | Category | Recur | Amount | Status | Actions
-- **Inline add:** Same grid layout — all fields editable inline (payee, date, category, recurring frequency, amount, status). Group selector appears as secondary row when groups exist.
-- **Inline edit:** Double-click row or click pencil icon to edit in-place with same grid. Enter saves, Esc cancels.
+#### Table Infrastructure (`src/components/cashflow/table/`)
+
+Shared, parameterizable table system reused by both cashflow and recurring pages:
+
+- **`types.ts`** — Grid layout (`GRID_COLS`), column definitions (`COLUMNS`, `COLUMN_INDEX`, `TABBABLE_COLUMNS`), generic `TableState`/`TableAction`/`RegisteredAction`/`ActionContext` types
+- **`useTableState.ts`** — `useReducer`-based state (focus, edit, selection). Accepts optional `TableColumnConfig` to customize columns for different pages.
+- **`useTableKeyboard.ts`** — Keyboard handler: arrows/j/k/h/l navigation, Enter to edit, Escape to cancel, Space/x to select, Cmd+A select all. Accepts optional `columnsCount`, `defaultEditCol`, `onCopy`/`onPaste` callbacks.
+- **`cells/`** — Reusable cell components: `PayeeCell`, `AmountCell`, `DateCell`, `CategoryCell`, `FrequencyCell` (with `required` prop), `StatusCell`, `ActionsCell`, `CellWrapper`
+- **`actions.ts`** — Factory `createActions()` returning `RegisteredAction[]` with keyboard shortcuts
+- **`TransactionTable.tsx`** — Orchestrator composing header, rows, inline add, bulk bar
+- **`TransactionRow.tsx`** — `React.memo`-wrapped row with per-cell editing
+- **`InlineAddRow.tsx`** — Grid-based add with draft persistence to sessionStorage
+- **`BulkActionBar.tsx`** — Fixed bar for bulk status/category/delete on selected rows
+
+**Key patterns for new table pages:**
+1. Define column types in `types.ts` (grid cols, column index, tabbable columns, `TableColumnConfig`)
+2. Pass config to `useTableState(config)` and `useTableKeyboard({ columnsCount, defaultEditCol })`
+3. Create action registry via factory function
+4. Reuse shared cell components from `cashflow/table/cells/`
+5. Compose orchestrator table component
+
+#### Cashflow-specific
+- **Columns:** Checkbox | Payee | Date | Category | Recur | Amount | Status | Actions
+- **Inline add:** All fields editable inline. Group selector appears as secondary row when groups exist.
 - **Empty state:** Always shows table structure with headers + "Add item" row (no EmptyState component).
-- **Recurring:** Frequency column shows abbreviated labels (Mo, Wk, Qt, Yr). Transactions joined with `recurring_transactions` table to get `recurring_frequency`.
 - **Data flow:** `useCashflow` hook → `buildCashflowRows()` → `CashflowRow` type includes `frequency` field.
 - **StatusPill:** Shared component for plan/confirmed toggle used in display, edit, and add modes.
 - **CategoryCombo:** Custom combobox (no Radix) with full ARIA compliance (`role="combobox"`, `listbox`, `option`, `aria-activedescendant`, `aria-expanded`) and keyboard nav (Arrow Up/Down, Enter, Escape, Home/End, Tab). Supports filtering existing categories and inline creation of new ones. Z-index: `z-[60]` for dropdown (above action menus at `z-50`).
 - **Z-index layers:** Action menus `z-[70]` > CategoryCombo dropdown `z-[60]`. Table container must NOT use `overflow-hidden` — use `rounded-t-xl` on header instead.
-- **Inline add drafts:** Persisted to `sessionStorage` (keyed `cashflow-draft-income`/`cashflow-draft-expense`) so navigation doesn't lose in-progress rows.
+- **Draft persistence:** sessionStorage keyed `cashflow-draft-income`/`cashflow-draft-expense`.
 - **Smart status default:** Future-dated transactions auto-set to "planned"; manual toggle overrides auto-behavior.
-- **Row interactions:** Double-click enters edit mode. Actions column has edit pencil + menu dots. Menu includes Duplicate, Stop recurrence, Delete.
+- **Row interactions:** Click cell to edit, arrows/Tab to navigate. Actions menu: Duplicate, Stop recurrence, Delete.
+
+### Recurring Page (`src/routes/recurring.tsx`, `src/components/recurring/table/`)
+
+Recurring rules management using the shared table infrastructure. Route file is a thin orchestrator (~160 lines).
+
+- **Components:** `RecurringTable` (orchestrator), `RecurringRow` (memo-wrapped), `EndDateCell` (nullable date), `RecurringActionsCell` (Pause/Resume + Delete), `RecurringInlineAddRow`, `RecurringBulkActionBar`
+- **Columns:** Checkbox | Payee | Amount | Frequency | Category | Start | End | Actions
+- **Grid:** `grid-cols-[16px_1fr_100px_52px_1fr_96px_100px_48px]`
+- **Cell editing:** Click-to-edit per cell, reuses PayeeCell, AmountCell, FrequencyCell (required=true), CategoryCell, DateCell from cashflow. EndDateCell is recurring-specific (nullable, shows "Open").
+- **Keyboard shortcuts:** `d` delete, `p` pause/resume, `e` edit payee, `c` edit category. No copy/paste (unlike cashflow).
+- **Inactive section:** Collapsible, uses RecurringTable with `inactive` prop (disables cell editing, shows Resume instead of Pause).
+- **Draft persistence:** sessionStorage keyed `recurring-draft-income`/`recurring-draft-expense`.
+- **Due indicator:** Pulsing dot when `is_active && next_occurrence <= today`.
+- **Variable amount:** Shows `~` prefix and lightning bolt icon.
 
 ### PDF Import (`src/lib/pdf-import/`, `src/components/pdf-import/`)
 

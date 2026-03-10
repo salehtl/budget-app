@@ -5,19 +5,19 @@
 - [x] Review Transactions Minor UI bug fix -> drop down does not overflow out of the parent container.
 - [x] Bank statement transactions CAN NEVER be in the future
 
-#### Transaction Table
-- [ ] I wanna brainstorm full overhaul of the inline transaction data input and managment and UI. Heavily inspired by linear.app. This is a whole system that needs to be brainstormed and fleshed out.
-- [ ] Inline Transaction UX quality of life – Enter should commit inline changes on a transaction line. also open to other useful keyboard shortcuts like ESC to exit edit mode.
-- [ ] Inline Transaction UX quality of life - Set recurring inline
-- [ ] Transaction line dragging between categories?
-- [ ] Standardize the allowed edits between "Add new" and "Edit" transaction line. I want users to be able to adjust all parameters after the fact (as long as not database/logic breaking which i dont think any should be; in such a case there needs to be a tooltip or transparancy to the user as to why that may be)
+#### Transaction Table UX and UI
+- [x] I wanna brainstorm full overhaul of the inline transaction data input and managment and UI. Heavily inspired by linear.app. This is a whole system that needs to be brainstormed and fleshed out.
+- [x] Inline Transaction UX quality of life – Enter should commit inline changes on a transaction line. also open to other useful keyboard shortcuts like ESC to exit edit mode.
+- [x] Inline Transaction UX quality of life - Set recurring inline
+- [x] Transaction line dragging between categories?
+- [x] Standardize the allowed edits between "Add new" and "Edit" transaction line. I want users to be able to adjust all parameters after the fact (as long as not database/logic breaking which i dont think any should be; in such a case there needs to be a tooltip or transparancy to the user as to why that may be)
 
 #### Recurring Transactions
-- [ ] Add set date option (for example salaries I pay on the 24th of each month) Right now there is a recurring transaction that started on 24 nov but shows it is expected to be paid on 20 mar? its losing a day each month?
-- [ ] BUG Layout Income disconnected from Expenditure.
-- [ ] BUG creating new income category goes to the expenditure category list.
-- [ ] If a recurring transaction/line is in the past it should automatically be set to confirmed (e.g. I put a salary that started being made to me a few years back it should be confirmed. Future should be planned) 
-- [ ] Utility bills are recurring, but fluctuate, need to be able to set them with an open (same as last month? forcasted pre set value?) and be notified to add them via banner or something to update their value when the invoice is made.
+- [x] Add set date option (for example salaries I pay on the 24th of each month) Right now there is a recurring transaction that started on 24 nov but shows it is expected to be paid on 20 mar? its losing a day each month?
+- [x] BUG Layout Income disconnected from Expenditure.
+- [x] BUG creating new income category goes to the expenditure category list.
+- [x] If a recurring transaction/line is in the past it should automatically be set to confirmed (e.g. I put a salary that started being made to me a few years back it should be confirmed. Future should be planned) 
+- [x] Utility bills are recurring, but fluctuate, need to be able to set them with an open (same as last month? forcasted pre set value?) and be notified to add them via banner or something to update their value when the invoice is made. -> 
 
 #### Managing Rate Limits
 
