@@ -58,6 +58,23 @@ async function migrate() {
     await execMulti(getSeedSQL());
     await exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   } else if (currentVersion < SCHEMA_VERSION) {
+    // Pre-migration backup: stash current data in settings table
+    try {
+      const tables = ["categories", "transactions", "recurring_transactions", "settings", "tags"];
+      const backup: Record<string, unknown[]> = {};
+      for (const table of tables) {
+        const result = await exec(`SELECT * FROM ${table}`);
+        backup[table] = result.rows;
+      }
+      const json = JSON.stringify({ version: currentVersion, backup_at: new Date().toISOString(), ...backup });
+      await exec(
+        `INSERT OR REPLACE INTO settings (key, value) VALUES ('_pre_migration_backup', ?)`,
+        [json]
+      );
+    } catch {
+      // Non-fatal: best-effort backup
+    }
+
     // Incremental migrations
     for (let v = currentVersion; v < SCHEMA_VERSION; v++) {
       const migration = MIGRATIONS[v];

@@ -11,7 +11,7 @@ export async function exportJSON(db: DbClient): Promise<string> {
     ]);
 
   const data = {
-    version: 2,
+    version: 3,
     exported_at: new Date().toISOString(),
     categories: categories.rows,
     transactions: transactions.rows,
