@@ -1,5 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 
+let swRegistration: ServiceWorkerRegistration | null = null;
+let lastUpdateCheck = 0;
+const UPDATE_COOLDOWN_MS = 5 * 60 * 1000;
+
+/** Trigger a manual SW update check. Returns the promise if initiated, null otherwise. */
+export function checkForUpdates(): Promise<void> | null {
+  if (!swRegistration) return null;
+  lastUpdateCheck = Date.now();
+  return swRegistration.update();
+}
+
 export function PwaUpdater() {
   const [needRefresh, setNeedRefresh] = useState(false);
   const updateSW = useRef<((reload?: boolean) => Promise<void>) | null>(null);
@@ -8,6 +19,7 @@ export function PwaUpdater() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const run = ++runRef.current;
+    const cleanups: (() => void)[] = [];
     import("virtual:pwa-register").then(({ registerSW }) => {
       if (run !== runRef.current) return;
       updateSW.current = registerSW({
@@ -16,8 +28,32 @@ export function PwaUpdater() {
           if (run !== runRef.current) return;
           setNeedRefresh(true);
         },
+        onRegistered(registration) {
+          if (!registration || run !== runRef.current) return;
+          swRegistration = registration;
+          // Check for updates every 15 minutes
+          const interval = setInterval(() => {
+            lastUpdateCheck = Date.now();
+            registration.update();
+          }, 15 * 60 * 1000);
+          // Also check when app returns from background (with cooldown)
+          const onVisible = () => {
+            if (document.visibilityState !== "visible") return;
+            const now = Date.now();
+            if (now - lastUpdateCheck < UPDATE_COOLDOWN_MS) return;
+            lastUpdateCheck = now;
+            registration.update();
+          };
+          document.addEventListener("visibilitychange", onVisible);
+          cleanups.push(
+            () => clearInterval(interval),
+            () => document.removeEventListener("visibilitychange", onVisible),
+            () => { swRegistration = null; },
+          );
+        },
       });
     });
+    return () => cleanups.forEach((fn) => fn());
   }, []);
 
   if (!needRefresh) return null;

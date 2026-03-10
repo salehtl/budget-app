@@ -32,6 +32,7 @@ import { emitDbEvent } from "../lib/db-events.ts";
 import { useTheme } from "../hooks/useTheme.ts";
 import { useChangelog } from "@/hooks/useChangelog";
 import { ChangelogModal } from "@/components/changelog/ChangelogModal";
+import { checkForUpdates } from "@/components/PwaUpdater";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -259,6 +260,27 @@ function SettingsPage() {
             <svg className="w-4 h-4 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m9 18 6-6-6-6" />
             </svg>
+          </button>
+          <button
+            onClick={() => {
+              const result = checkForUpdates();
+              if (!result) { toast("Not ready yet — try again in a moment", "info"); return; }
+              toast("Checking for updates...", "info");
+            }}
+            className="w-full flex items-center justify-between p-3 rounded-lg border border-border hover:bg-surface-alt transition-colors cursor-pointer text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.22-8.56" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium">Check for Updates</p>
+                <p className="text-xs text-text-muted">v{latestVersion} — Tap to check now</p>
+              </div>
+            </div>
           </button>
           <div className="space-y-1.5 text-xs text-text-muted px-1">
             <p>Storage: {db.storageType.toUpperCase()}</p>
