@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-03-13
+
+### Added
+- **Move transaction between income and expenses**: "Move to income / Move to expenses" action in the transaction row menu — clears category on switch since income/expense categories are separate pools
+- **Subscription detection in PDF import**: Single-occurrence transactions from known subscription services (Netflix, Spotify, Apple, Adobe, Etisalat, insurance, etc.) are now surfaced as monthly recurring candidates (medium confidence, not pre-selected)
+
+### Changed
+- **Recurring detector prefers monthly over weekly/biweekly**: Monthly patterns are now high-confidence with just 2 occurrences; weekly/biweekly require 3+ hits to avoid false positives on monthly transactions. 2-occurrence high-freq patterns for known subscriptions are promoted to monthly automatically
+- **Monthly interval range widened**: Now matches 26–35 day gaps (was 27–33) to handle variable calendar month lengths
+- **Quarterly range unified**: Merged two disjoint quarterly bands into 55–105 days — closes a dead zone where ~75-day intervals were silently dropped
+- **Monthly/subscription patterns sort first** in the recurring review UI ahead of weekly/biweekly
+
+### Fixed
+- **Swipe to change month now works anywhere on the page**, not just on the card area (container now fills full viewport height)
+- **Recurring cell edits no longer issue redundant DB queries**: `onEditRow` now uses the in-memory transaction map for `recurring_id` lookups instead of two extra Worker round-trips per edit
+
 ## [2.6.0] - 2026-03-13
 
 ### Added
