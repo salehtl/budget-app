@@ -13,6 +13,7 @@ import {
 } from "../db/queries/transactions.ts";
 import { emitDbEvent, onDbEvent } from "../lib/db-events.ts";
 import { getToday } from "../lib/format.ts";
+import { getNextOccurrence } from "../lib/recurring.ts";
 import type { RecurringTransaction } from "../types/database.ts";
 
 export function useRecurring() {
@@ -138,12 +139,28 @@ export function useRecurring() {
   const resumeRecurrence = useCallback(
     async (recurringId: string) => {
       const today = getToday();
-      await updateRecurring(db, recurringId, { is_active: true });
+      // Check if rule ended (end_date in the past) — if so, clear end_date and reset next_occurrence
+      const rule = items.find((r) => r.id === recurringId);
+      const updates: Parameters<typeof updateRecurring>[2] = { is_active: true };
+      if (rule?.end_date && rule.end_date < today) {
+        updates.end_date = null;
+        // Compute the first valid future occurrence respecting the rule's cadence
+        let occ = today;
+        if (rule.frequency) {
+          occ = getNextOccurrence(today, rule.frequency, rule.anchor_day, rule.custom_interval_days);
+          // If today itself is a valid occurrence date (matches anchor), use today
+          if (rule.anchor_day && parseInt(today.slice(8, 10), 10) === rule.anchor_day) {
+            occ = today;
+          }
+        }
+        updates.next_occurrence = occ;
+      }
+      await updateRecurring(db, recurringId, updates);
       const count = await processRecurringRuleById(db, recurringId, today);
       emitDbEvent("recurring-changed");
       if (count > 0) emitDbEvent("transactions-changed");
     },
-    [db]
+    [db, items]
   );
 
   return { items, loading, add, update, remove, stopRecurrence, resumeRecurrence, updateRuleAndSync, refresh };
