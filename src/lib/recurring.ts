@@ -111,14 +111,35 @@ export function computeOccurrencesForMonth(
     return [];
   }
 
-  // For day-based frequencies: iterate ALL occurrences within the month
+  // Compute occurrences from start_date, not next_occurrence
+  // (the scheduler may have advanced next_occurrence past this month)
   const results: string[] = [];
-  let occ = rule.next_occurrence;
+  const isFixedDayInterval = freq === "daily" || freq === "weekly" || freq === "biweekly" || freq === "custom";
 
-  // Step forward from next_occurrence until we reach the month
-  while (occ < monthStart) {
-    occ = getNextOccurrence(occ, freq, rule.anchor_day, rule.custom_interval_days);
-    if (rule.end_date && occ > rule.end_date) return [];
+  let occ: string;
+  if (rule.start_date >= monthStart) {
+    occ = rule.start_date;
+  } else if (isFixedDayInterval) {
+    // For fixed-day intervals, jump directly via modular arithmetic
+    const intervalDays = freq === "daily" ? 1
+      : freq === "weekly" ? 7
+      : freq === "biweekly" ? 14
+      : rule.custom_interval_days ?? 1;
+    const startMs = new Date(rule.start_date + "T00:00:00").getTime();
+    const monthStartMs = new Date(monthStart + "T00:00:00").getTime();
+    const daysBetween = Math.round((monthStartMs - startMs) / 86400000);
+    const remainder = daysBetween % intervalDays;
+    const daysToAdd = remainder === 0 ? 0 : intervalDays - remainder;
+    const first = new Date(monthStartMs);
+    first.setDate(first.getDate() + daysToAdd);
+    occ = formatLocalDate(first);
+  } else {
+    // Month-based without anchor_day: iterate from start_date
+    occ = rule.start_date;
+    while (occ < monthStart) {
+      occ = getNextOccurrence(occ, freq, rule.anchor_day, rule.custom_interval_days);
+      if (rule.end_date && occ > rule.end_date) return [];
+    }
   }
 
   // Collect all occurrences within the month
