@@ -26,7 +26,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/) (`Added`, `Changed`, `Fi
 - Charts: Recharts
 - Database: wa-sqlite (WASM) via Web Worker — OPFS primary, IndexedDB fallback
 - PWA: vite-plugin-pwa + Workbox
-- Validation: Zod
 - Language: TypeScript (strict mode)
 
 ## Commands
